@@ -1,0 +1,62 @@
+name: "Configure AWS Credentials"
+description: "Configures AWS credentials by assuming a specified IAM role."
+inputs:
+  AWS_ROLE_ARN_TO_ASSUME:
+    description: "AWS ROLE ARN to assume"
+    required: true
+
+  AWS_SESSION_DURATION:
+    description: "Duration for the assumed role session in seconds. Defaults to 900 seconds (15 minutes). minimum is 900. Maximum is 3600 seconds (1 hour)."
+    required: true
+    default: "900"
+    type: choice
+    options:
+      - "900"
+      - "1800"
+      - "2700"
+      - "3600"
+
+  AWS_ACCOUNT_ID_MASKING_ENABLED:
+    description: "Whether to mask the AWS Account ID in logs. Defaults to true."
+    required: false
+    default: "true"
+    type: choice
+    options:
+      - "true"
+      - "false"
+
+  AWS_SESSION_NAME:
+    description: "Name for the assumed role session. Defaults to 'GitHubActionsSession'."
+    required: false
+    default: "GitHubActionsSession"
+
+  AWS_REGION:
+    description: "in which aws region to assume the role at ? Defaults to eu-central-2 ( Zurich )"
+    required: false
+    default: "eu-central-2"
+
+  AWS_AUDIENCE:
+    description: "Audience for the role assumption. Defaults to 'sts.amazonaws.com'."
+    required: false
+    default: "sts.amazonaws.com"
+
+  UNSET_CURRENT_CREDENTIALS:
+    description: "Whether to unset any previously configured AWS credentials to avoid leakage. Defaults to true."
+    required: false
+    default: "true"
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Configure AWS credentials"
+      uses: aws-actions/configure-aws-credentials@v5
+      with:
+        mask-aws-account-id: ${{ inputs.AWS_ACCOUNT_ID_MASKING_ENABLED }} # account id is sensitive but not secret. don't publicly expose it.
+        role-to-assume: ${{ inputs.AWS_ROLE_ARN_TO_ASSUME }} # a role that can be assumed by GHA actions only
+        role-duration-seconds: ${{ inputs.AWS_SESSION_DURATION }} # minimum is 900 seconds ( 15 minutes )
+        role-session-name: ${{ inputs.AWS_SESSION_NAME }} # name of the session for auditing purposes
+        aws-region: ${{ inputs.AWS_REGION }} # region where the role is defined
+        unset-current-credentials: ${{ inputs.UNSET_CURRENT_CREDENTIALS }} # unset any previously configured credentials to avoid leakage
+        audience: ${{ inputs.AWS_AUDIENCE }} # audience for AWS STS
+
+

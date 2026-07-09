@@ -1,0 +1,16 @@
+name: "Github WorkFlow Version Release"
+
+permissions:
+  id-token: write
+  issues: write
+  contents: write
+  pull-requests: write
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+jobs:
+  terraform_module_release:
+    uses: blw-ofag-ufag/github-workflows/.github/workflows/release.yml@main

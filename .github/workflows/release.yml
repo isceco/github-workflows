@@ -1,0 +1,54 @@
+name: "Release"
+# opens a PR to bump the version and create a release
+# can be called from other workflows
+# versioning is based on conventional commits message format
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: 'Where to run, usually ubuntu-latest or self-hosted'
+        default: 'ubuntu-latest'
+        required: false
+        type: string
+      release-type:
+        description: 'Release type to use. Defaults to simple'
+        default: 'simple'
+        required: false
+        type: string
+    outputs:
+      release_created:
+        description: 'Whether a release was created'
+        value: ${{ jobs.release_please.outputs.release_created }}
+      version:
+        description: 'The version that was released'
+        value: ${{ jobs.release_please.outputs.version }}
+jobs:
+  release_please:
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      version: ${{ steps.version.outputs.version }}
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          release-type: ${{ inputs.release-type }}
+      - uses: actions/checkout@v4
+      - name: "tag major and minor versions"
+        id: version
+        if: ${{ steps.release.outputs.release_created }}
+        run: |
+          git config user.name "github-actions[bot] :robot:"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add gh-token "https://${{ secrets.GITHUB_TOKEN }}@github.com/google-github-actions/release-please-action.git"
+          git tag -d v${{ steps.release.outputs.major }} || true
+          git tag -d v${{ steps.release.outputs.major }}.${{ steps.release.outputs.minor }} || true
+          git push origin :v${{ steps.release.outputs.major }} || true
+          git push origin :v${{ steps.release.outputs.major }}.${{ steps.release.outputs.minor }} || true
+          git tag -a v${{ steps.release.outputs.major }} -m "Release v${{ steps.release.outputs.major }}"
+          git tag -a v${{ steps.release.outputs.major }}.${{ steps.release.outputs.minor }} -m "Release v${{ steps.release.outputs.major }}.${{ steps.release.outputs.minor }}"
+          git push origin v${{ steps.release.outputs.major }}
+          git push origin v${{ steps.release.outputs.major }}.${{ steps.release.outputs.minor }}
+
+          echo "release_created=true" >> $GITHUB_OUTPUT
+          echo "version=v${{ steps.release.outputs.major }}.${{ steps.release.outputs.minor }}.${{ steps.release.outputs.patch }}" >> $GITHUB_OUTPUT
