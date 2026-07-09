@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/isceco/github-workflows/compare/v1.1.0...v1.2.0) (2026-07-09)
+
+
+### Features
+
+* add reusable docker build scan and push workflow ([063cb7f](https://github.com/isceco/github-workflows/commit/063cb7f3991e735ba4e5cc0e800da1bd40433d78))
+
 ## [1.1.0](https://github.com/isceco/github-workflows/compare/v1.0.1...v1.1.0) (2026-07-09)
 
 
