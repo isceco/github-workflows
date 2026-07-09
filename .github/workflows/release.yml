@@ -29,10 +29,11 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     runs-on: ${{ inputs.runs-on }}
     steps:
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         id: release
         with:
           release-type: ${{ inputs.release-type }}
+          token: https://${{ secrets.GITHUB_TOKEN }}
       - uses: actions/checkout@v4
       - name: "tag major and minor versions"
         id: version
