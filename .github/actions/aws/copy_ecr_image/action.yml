@@ -1,0 +1,53 @@
+name: Copy ECR Image
+description: Copy a Docker image from one AWS account ECR to another
+
+inputs:
+  source-role-arn:
+    description: AWS OIDC role ARN for the source account
+    required: true
+  target-role-arn:
+    description: AWS OIDC role ARN for the target account
+    required: true
+  aws-region:
+    description: AWS region
+    required: true
+  ecr-repository:
+    description: ECR repository name (same in both accounts)
+    required: true
+  image-tag:
+    description: Image tag to copy
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Configure AWS credentials (source)
+      uses: isceco/github-workflows/.github/actions/aws/configure_credentials@v1
+      with:
+        AWS_ROLE_ARN_TO_ASSUME: ${{ inputs.source-role-arn }}
+        AWS_REGION: ${{ inputs.aws-region }}
+        AWS_SESSION_NAME: CopyECR-Source-${{ github.run_id }}
+
+    - name: Pull image from source ECR
+      shell: bash
+      run: |
+        SOURCE_REGISTRY=$(aws sts get-caller-identity --query Account --output text).dkr.ecr.${{ inputs.aws-region }}.amazonaws.com
+        aws ecr get-login-password --region ${{ inputs.aws-region }} | docker login --username AWS --password-stdin "${SOURCE_REGISTRY}"
+        docker pull --platform linux/arm64 "${SOURCE_REGISTRY}/${{ inputs.ecr-repository }}:${{ inputs.image-tag }}"
+        echo "SOURCE_REGISTRY=${SOURCE_REGISTRY}" >> $GITHUB_ENV
+
+    - name: Configure AWS credentials (target)
+      uses: isceco/github-workflows/.github/actions/aws/configure_credentials@v1
+      with:
+        AWS_ROLE_ARN_TO_ASSUME: ${{ inputs.target-role-arn }}
+        AWS_REGION: ${{ inputs.aws-region }}
+        AWS_SESSION_NAME: CopyECR-Target-${{ github.run_id }}
+
+    - name: Push image to target ECR
+      shell: bash
+      run: |
+        TARGET_REGISTRY=$(aws sts get-caller-identity --query Account --output text).dkr.ecr.${{ inputs.aws-region }}.amazonaws.com
+        aws ecr get-login-password --region ${{ inputs.aws-region }} | docker login --username AWS --password-stdin "${TARGET_REGISTRY}"
+        docker tag "${SOURCE_REGISTRY}/${{ inputs.ecr-repository }}:${{ inputs.image-tag }}" "${TARGET_REGISTRY}/${{ inputs.ecr-repository }}:${{ inputs.image-tag }}"
+        docker push "${TARGET_REGISTRY}/${{ inputs.ecr-repository }}:${{ inputs.image-tag }}"
+        echo "Copied ${{ inputs.ecr-repository }}:${{ inputs.image-tag }} to ${TARGET_REGISTRY}"

@@ -1,0 +1,68 @@
+name: Update Infrastructure Tfvars
+description: Update an image tag in an infrastructure repo's terraform.auto.tfvars.json and push
+
+inputs:
+  infra-repo:
+    description: Infrastructure repository (e.g., <owner>/<infra-repo>)
+    required: true
+  tfvars-key:
+    description: The JSON key to update (e.g., <service>_image_tag)
+    required: true
+  image-tag:
+    description: The new image tag value
+    required: true
+  gh-app-id:
+    description: GitHub App ID for authentication
+    required: true
+  gh-app-private-key:
+    description: GitHub App private key for authentication
+    required: true
+  commit-message:
+    description: Commit message
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Extract repo name
+      id: repo
+      shell: bash
+      run: echo "name=$(echo '${{ inputs.infra-repo }}' | cut -d'/' -f2)" >> $GITHUB_OUTPUT
+
+    - name: Generate GitHub App Token
+      id: app-token
+      uses: actions/create-github-app-token@v1
+      with:
+        app-id: ${{ inputs.gh-app-id }}
+        private-key: ${{ inputs.gh-app-private-key }}
+        repositories: ${{ steps.repo.outputs.name }}
+
+    - name: Checkout infrastructure repository
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.infra-repo }}
+        token: ${{ steps.app-token.outputs.token }}
+        ref: main
+        path: infra
+
+    - name: Update tfvars
+      shell: bash
+      working-directory: infra
+      run: |
+        jq --arg tag "${{ inputs.image-tag }}" '.${{ inputs.tfvars-key }} = $tag' terraform/terraform.auto.tfvars.json > tmp.json && mv tmp.json terraform/terraform.auto.tfvars.json
+        git diff terraform/terraform.auto.tfvars.json
+
+    - name: Commit and push
+      shell: bash
+      working-directory: infra
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+
+        if git diff --quiet; then
+          echo "No changes to commit"
+        else
+          git add terraform/terraform.auto.tfvars.json
+          git commit -m "${{ inputs.commit-message }}"
+          git push
+        fi
