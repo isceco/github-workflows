@@ -33,7 +33,7 @@ jobs:
         id: release
         with:
           release-type: ${{ inputs.release-type }}
-          token: https://${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/checkout@v4
       - name: "tag major and minor versions"
         id: version

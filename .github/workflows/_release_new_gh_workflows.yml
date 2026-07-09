@@ -13,4 +13,4 @@ on:
       - main
 jobs:
   terraform_module_release:
-    uses: blw-ofag-ufag/github-workflows/.github/workflows/release.yml@main
+    uses: ./.github/workflows/release.yml

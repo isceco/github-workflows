@@ -462,7 +462,7 @@ jobs:
 
       - name: "Configure AWS credentials"
         if: ${{ inputs.aws_oidc_role_arn != '' }}
-        uses: blw-ofag-ufag/github-workflows/.github/actions/aws/configure_credentials@main
+        uses: isceco/github-workflows/.github/actions/aws/configure_credentials@v1
         with:
           AWS_ROLE_ARN_TO_ASSUME: ${{ inputs.aws_oidc_role_arn }}
           AWS_REGION: ${{ inputs.aws_default_region }}
