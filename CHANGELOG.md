@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/isceco/github-workflows/compare/v1.0.1...v1.1.0) (2026-07-09)
+
+
+### Features
+
+* add shared copy_ecr_image, ecs_smoke_test, update_infra_tfvars composite actions ([7f3dda9](https://github.com/isceco/github-workflows/commit/7f3dda96e3d54a99de025c34fe9e9a7b39d44378))
+
 ## [1.0.1](https://github.com/isceco/github-workflows/compare/v1.0.0...v1.0.1) (2026-07-09)
 
 
