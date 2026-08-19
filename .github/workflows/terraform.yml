@@ -172,7 +172,7 @@ jobs:
       - name: Get Github Access Token
         id: github_app_token
         continue-on-error: true # Use continue-on-error to handle missing secrets
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.GH_APP_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
@@ -196,7 +196,7 @@ jobs:
 
       - name: Setup OpenTofu
         if: ${{ inputs.use_opentofu == true }}
-        uses: opentofu/setup-opentofu@v1
+        uses: opentofu/setup-opentofu@v2
         with:
           tofu_version: ${{ inputs.terraform_version }}
           tofu_wrapper: false
@@ -243,7 +243,7 @@ jobs:
       - name: Get Github Access Token
         id: github_app_token
         continue-on-error: true # Use continue-on-error to handle missing secrets
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.GH_APP_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
@@ -290,7 +290,7 @@ jobs:
       - name: Get Github Access Token
         id: github_app_token
         continue-on-error: true # Use continue-on-error to handle missing secrets
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.GH_APP_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
@@ -345,7 +345,7 @@ jobs:
       - name: Get Github Access Token
         id: github_app_token
         continue-on-error: true # Use continue-on-error to handle missing secrets
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.GH_APP_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
@@ -408,7 +408,7 @@ jobs:
       - name: Get Private Module Access Token
         if: ${{ inputs.terraform_modules_auth == 'github-app' }}
         id: private_module_access
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.TERRAFORM_MODULES_APP_ID }}
           private-key: ${{ secrets.TERRAFORM_MODULES_APP_PRIVATE_KEY }}
@@ -439,7 +439,7 @@ jobs:
 
       - name: Setup OpenTofu
         if: ${{ inputs.use_opentofu == true }}
-        uses: opentofu/setup-opentofu@v1
+        uses: opentofu/setup-opentofu@v2
         with:
           tofu_version: ${{ inputs.terraform_version }}
           tofu_wrapper: false
