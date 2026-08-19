@@ -1,0 +1,205 @@
+name: PUBLISH TOFU MODULE
+# Reusable workflow: package an OpenTofu module and publish it to a central ECR
+# registry as an OCI artifact, so consumers can reference it as
+#   source = "oci://<registry>/<namespace>/<module>?tag=<version>"
+# instead of pulling from git. Requires OpenTofu 1.10+ on the consumer side.
+#
+# Nothing about the target account is configured here. The registry URI is derived at
+# run time from the account the OIDC role belongs to (via amazon-ecr-login), so the
+# AWS_ROLE_ARN secret is the only place an account identifier appears.
+#
+# Registry repositories are expected to be IMMUTABLE, so republishing an existing
+# version is skipped rather than attempted (see the skip_if_exists input).
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version to publish, e.g. v1.2.3. Must be an existing git tag in the calling repository.'
+        required: true
+        type: string
+      module_name:
+        description: 'Module name, used as the ECR repository name within the namespace. Defaults to the calling repository name.'
+        default: ''
+        required: false
+        type: string
+      aws_region:
+        description: 'AWS region of the target ECR registry'
+        default: 'eu-central-2'
+        required: false
+        type: string
+      ecr_namespace:
+        description: 'Namespace prefix the module repositories live under in the registry'
+        default: 'central-registry'
+        required: false
+        type: string
+      artifact_type:
+        description: 'OCI artifact type recorded on the pushed manifest'
+        default: 'application/vnd.opentofu.modulepkg'
+        required: false
+        type: string
+      oras_version:
+        description: 'Version of the ORAS CLI used to push the artifact'
+        default: '1.2.2'
+        required: false
+        type: string
+      skip_if_exists:
+        description: 'Skip publishing if this version already exists in the registry. Registry repositories are IMMUTABLE, so a re-run would otherwise fail the job.'
+        default: true
+        required: false
+        type: boolean
+      runner:
+        description: 'Runner to publish from'
+        default: 'ubuntu-latest'
+        required: false
+        type: string
+    secrets:
+      AWS_ROLE_ARN:
+        description: 'OIDC role ARN to assume for publishing. Also determines the target account, and therefore the registry URI.'
+        required: true
+    outputs:
+      artifact_uri:
+        description: 'Full OCI URI of the published artifact'
+        value: ${{ jobs.publish.outputs.artifact_uri }}
+      skipped:
+        description: 'true if publishing was skipped because the version already existed'
+        value: ${{ jobs.publish.outputs.skipped }}
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    name: Package and Publish
+    runs-on: ${{ inputs.runner }}
+    outputs:
+      artifact_uri: ${{ steps.resolve.outputs.artifact_uri }}
+      skipped: ${{ steps.check.outputs.skipped }}
+    steps:
+      - name: Checkout released version
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.version }}
+
+      - name: Configure AWS credentials
+        uses: isceco/github-workflows/.github/actions/aws/configure_credentials@v1
+        with:
+          AWS_ROLE_ARN_TO_ASSUME: ${{ secrets.AWS_ROLE_ARN }}
+          AWS_REGION: ${{ inputs.aws_region }}
+          AWS_SESSION_NAME: GitHubActions-PublishTofuModule-${{ github.run_id }}
+
+      # Yields the registry URI for the account the role belongs to, which keeps the
+      # account identifier out of this workflow and out of the caller's configuration.
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Resolve target
+        id: resolve
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          MODULE_NAME="${{ inputs.module_name }}"
+          if [ -z "${MODULE_NAME}" ]; then
+            MODULE_NAME="${GITHUB_REPOSITORY##*/}"
+          fi
+          ECR_REPOSITORY="${{ inputs.ecr_namespace }}/${MODULE_NAME}"
+          ARTIFACT_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:${{ inputs.version }}"
+          {
+            echo "module_name=${MODULE_NAME}"
+            echo "ecr_repository=${ECR_REPOSITORY}"
+            echo "artifact_uri=${ARTIFACT_URI}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Publishing ${MODULE_NAME} ${{ inputs.version }} to ${ECR_REPOSITORY}"
+
+      - name: Check whether this version already exists
+        id: check
+        run: |
+          if [ "${{ inputs.skip_if_exists }}" = "true" ] && \
+             aws ecr describe-images \
+               --repository-name "${{ steps.resolve.outputs.ecr_repository }}" \
+               --image-ids imageTag="${{ inputs.version }}" \
+               --region "${{ inputs.aws_region }}" > /dev/null 2>&1; then
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${{ steps.resolve.outputs.artifact_uri }} already exists - skipping publish"
+          else
+            echo "skipped=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install ORAS
+        if: steps.check.outputs.skipped != 'true'
+        run: |
+          curl -sSLf -o /tmp/oras.tar.gz \
+            "https://github.com/oras-project/oras/releases/download/v${{ inputs.oras_version }}/oras_${{ inputs.oras_version }}_linux_amd64.tar.gz"
+          sudo tar -xzf /tmp/oras.tar.gz -C /usr/local/bin oras
+          sudo chmod +x /usr/local/bin/oras
+          rm -f /tmp/oras.tar.gz
+          oras version
+
+      - name: Package module
+        if: steps.check.outputs.skipped != 'true'
+        env:
+          MODULE_NAME: ${{ steps.resolve.outputs.module_name }}
+          ECR_REPOSITORY: ${{ steps.resolve.outputs.ecr_repository }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          rm -rf /tmp/module-package /tmp/module.zip
+          mkdir -p /tmp/module-package
+          rsync -a \
+            --exclude='.git' \
+            --exclude='.gitignore' \
+            --exclude='.terraform' \
+            --exclude='*.tfstate*' \
+            --exclude='.terraform.lock.hcl' \
+            --exclude='terraform.tfvars*' \
+            --exclude='*.auto.tfvars*' \
+            --exclude='.DS_Store' \
+            ./ /tmp/module-package/
+          cat > /tmp/module-package/metadata.json << METADATA
+          {
+            "name": "${MODULE_NAME}",
+            "version": "${VERSION}",
+            "packaged_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "packaged_by": "GitHub Actions",
+            "tool": "OpenTofu Module Packager (CI/CD)",
+            "git_commit": "${GITHUB_SHA}",
+            "repository": "${ECR_REPOSITORY}"
+          }
+          METADATA
+          (cd /tmp/module-package && zip -r /tmp/module.zip . -q)
+          echo "Archive size: $(du -h /tmp/module.zip | cut -f1)"
+
+      - name: Publish OCI artifact
+        if: steps.check.outputs.skipped != 'true'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ARTIFACT_URI: ${{ steps.resolve.outputs.artifact_uri }}
+          MODULE_NAME: ${{ steps.resolve.outputs.module_name }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          aws ecr get-login-password --region "${{ inputs.aws_region }}" \
+            | oras login "${ECR_REGISTRY}" --username AWS --password-stdin
+          oras push "${ARTIFACT_URI}" \
+            --disable-path-validation \
+            --artifact-type "${{ inputs.artifact_type }}" \
+            /tmp/module.zip:archive/zip \
+            --annotation "org.opencontainers.image.title=${MODULE_NAME}" \
+            --annotation "org.opencontainers.image.version=${VERSION}" \
+            --annotation "org.opencontainers.image.created=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+            --annotation "org.opencontainers.image.description=OpenTofu module: ${MODULE_NAME}" \
+            --annotation "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --annotation "org.opencontainers.image.revision=${GITHUB_SHA}"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## OpenTofu module publish"
+            echo ""
+            if [ "${{ steps.check.outputs.skipped }}" = "true" ]; then
+              echo "Skipped: version already present in the registry."
+            else
+              echo "Published \`oci://${{ steps.resolve.outputs.artifact_uri }}\`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
