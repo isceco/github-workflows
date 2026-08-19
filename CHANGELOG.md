@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/isceco/github-workflows/compare/v1.2.0...v1.3.0) (2026-08-19)
+
+
+### Features
+
+* add reusable publish_tofu_module workflow ([54993e3](https://github.com/isceco/github-workflows/commit/54993e3843a1550976c25633543f83e98e541e63))
+
 ## [1.2.0](https://github.com/isceco/github-workflows/compare/v1.1.0...v1.2.0) (2026-07-09)
 
 
