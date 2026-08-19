@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.4.0](https://github.com/isceco/github-workflows/compare/v1.3.0...v1.4.0) (2026-08-19)
+
+
+### Features
+
+* bump upload-artifact, app-token, buildx and setup-opentofu ([9e18378](https://github.com/isceco/github-workflows/commit/9e18378c0f38861312c4045654df4a0f29ec2357))
+
+
+### Bug Fixes
+
+* bump checkout to v7 and configure-aws-credentials to v6 ([f96b7cf](https://github.com/isceco/github-workflows/commit/f96b7cf63e693aed4759576c30f8ea5a36623497))
+
 ## [1.3.0](https://github.com/isceco/github-workflows/compare/v1.2.0...v1.3.0) (2026-08-19)
 
 
