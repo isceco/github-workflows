@@ -34,7 +34,7 @@ jobs:
         with:
           release-type: ${{ inputs.release-type }}
           token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: "tag major and minor versions"
         id: version
         if: ${{ steps.release.outputs.release_created }}

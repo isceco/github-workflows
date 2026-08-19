@@ -38,7 +38,7 @@ runs:
         repositories: ${{ steps.repo.outputs.name }}
 
     - name: Checkout infrastructure repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         repository: ${{ inputs.infra-repo }}
         token: ${{ steps.app-token.outputs.token }}

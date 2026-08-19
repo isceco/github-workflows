@@ -78,7 +78,7 @@ jobs:
       skipped: ${{ steps.check.outputs.skipped }}
     steps:
       - name: Checkout released version
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.version }}
 
