@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1](https://github.com/isceco/github-workflows/compare/v1.5.0...v1.5.1) (2026-08-21)
+
+
+### Bug Fixes
+
+* pin the per-module snippet to the newest version ([30d7060](https://github.com/isceco/github-workflows/commit/30d70605d0c51880d56c497e6234c16b7aa3cac9))
+
 ## [1.5.0](https://github.com/isceco/github-workflows/compare/v1.4.0...v1.5.0) (2026-08-21)
 
 
