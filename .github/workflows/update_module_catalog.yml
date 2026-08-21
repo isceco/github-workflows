@@ -1,0 +1,271 @@
+name: UPDATE MODULE CATALOG
+# Reusable workflow: render a catalog of the OpenTofu modules published to a central ECR
+# registry into a markdown file, between a pair of marker comments, in the style of
+# terraform-docs.
+#
+# The catalog is built from the registry rather than from git tags on purpose. The two
+# disagree in both directions: the registry holds versions published by earlier pipelines
+# that were never tagged in this organization, and repositories carry tags that were cut
+# before the current publish pipeline existed and so were never pushed. Only the registry
+# answers the question the catalog exists to answer, which is what can actually be pulled.
+#
+# The target file must already contain the markers, otherwise the run fails rather than
+# guessing where the section belongs:
+#   <!-- BEGIN_MODULE_CATALOG -->
+#   <!-- END_MODULE_CATALOG -->
+
+on:
+  workflow_call:
+    inputs:
+      aws_region:
+        description: 'AWS region of the registry to read'
+        default: 'eu-central-2'
+        required: false
+        type: string
+      ecr_namespace:
+        description: 'Namespace prefix the module repositories live under in the registry'
+        default: 'central-registry'
+        required: false
+        type: string
+      target_file:
+        description: 'Markdown file to update, relative to the repository root'
+        default: 'README.md'
+        required: false
+        type: string
+      marker:
+        description: 'Marker name; the workflow replaces content between <!-- BEGIN_<marker> --> and <!-- END_<marker> -->'
+        default: 'MODULE_CATALOG'
+        required: false
+        type: string
+      source_organization:
+        description: 'GitHub organization to link modules to and read descriptions from. Empty disables linking.'
+        default: ''
+        required: false
+        type: string
+      mask_account_id:
+        description: 'Render the registry host as <ACCOUNT_ID>.dkr.ecr... instead of the real account id. Set true if the target repository is, or may become, public.'
+        default: false
+        required: false
+        type: boolean
+      commit_message:
+        description: 'Commit message used when the catalog changes'
+        default: 'docs: update module catalog'
+        required: false
+        type: string
+      runner:
+        description: 'Runner to execute on'
+        default: 'ubuntu-latest'
+        required: false
+        type: string
+    secrets:
+      AWS_ROLE_ARN:
+        description: 'Read-only OIDC role ARN for the registry account. Also determines which account is read.'
+        required: true
+    outputs:
+      changed:
+        description: 'true if the catalog content changed and was committed'
+        value: ${{ jobs.catalog.outputs.changed }}
+      module_count:
+        description: 'Number of modules found in the registry'
+        value: ${{ jobs.catalog.outputs.module_count }}
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  catalog:
+    name: Render Module Catalog
+    runs-on: ${{ inputs.runner }}
+    outputs:
+      changed: ${{ steps.apply.outputs.changed }}
+      module_count: ${{ steps.render.outputs.module_count }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Configure AWS credentials
+        uses: isceco/github-workflows/.github/actions/aws/configure_credentials@v1
+        with:
+          AWS_ROLE_ARN_TO_ASSUME: ${{ secrets.AWS_ROLE_ARN }}
+          AWS_REGION: ${{ inputs.aws_region }}
+          AWS_SESSION_NAME: GitHubActions-ModuleCatalog-${{ github.run_id }}
+
+      - name: Read registry
+        id: read
+        env:
+          NAMESPACE: ${{ inputs.ecr_namespace }}
+          REGION: ${{ inputs.aws_region }}
+        run: |
+          set -euo pipefail
+          aws ecr describe-repositories --region "$REGION" \
+            --query "repositories[?starts_with(repositoryName, \`${NAMESPACE}/\`)].{name:repositoryName,uri:repositoryUri}" \
+            --output json > /tmp/repos.json
+          echo "Found $(jq 'length' /tmp/repos.json) repositories under ${NAMESPACE}/"
+
+          echo '{}' > /tmp/versions.json
+          for name in $(jq -r '.[].name' /tmp/repos.json); do
+            aws ecr describe-images --region "$REGION" --repository-name "$name" \
+              --query 'imageDetails[].{tags:imageTags,pushed:imagePushedAt,size:imageSizeBytes}' \
+              --output json > /tmp/imgs.json 2>/dev/null || echo '[]' > /tmp/imgs.json
+            jq --arg n "$name" --slurpfile imgs /tmp/imgs.json \
+              '.[$n] = $imgs[0]' /tmp/versions.json > /tmp/versions.next.json
+            mv /tmp/versions.next.json /tmp/versions.json
+          done
+
+      - name: Render catalog
+        id: render
+        env:
+          REPOS_JSON: /tmp/repos.json
+          VERSIONS_JSON: /tmp/versions.json
+          NAMESPACE: ${{ inputs.ecr_namespace }}
+          SOURCE_ORG: ${{ inputs.source_organization }}
+          MASK_ACCOUNT_ID: ${{ inputs.mask_account_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/catalog.md
+          import json, os, re, subprocess
+
+          ns = os.environ["NAMESPACE"]
+          org = os.environ.get("SOURCE_ORG", "").strip()
+          mask = os.environ.get("MASK_ACCOUNT_ID", "false").lower() == "true"
+
+          repos = json.load(open(os.environ["REPOS_JSON"]))
+          versions = json.load(open(os.environ["VERSIONS_JSON"]))
+
+          SEMVER = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
+
+          def registry_host(uri):
+              host = uri.split("/", 1)[0]
+              return re.sub(r"^\d{12}\.", "<ACCOUNT_ID>.", host) if mask else host
+
+          def describe(name):
+              if not org:
+                  return ""
+              try:
+                  out = subprocess.run(
+                      ["gh", "api", f"/repos/{org}/{name}", "-q", ".description // \"\""],
+                      capture_output=True, text=True, timeout=20)
+                  return out.stdout.strip() if out.returncode == 0 else ""
+              except Exception:
+                  return ""
+
+          entries = []
+          for r in sorted(repos, key=lambda x: x["name"]):
+              short = r["name"].split("/", 1)[1] if "/" in r["name"] else r["name"]
+              imgs = versions.get(r["name"], []) or []
+              tags = [t for img in imgs for t in (img.get("tags") or [])]
+              # Only full semver tags are consumable references; drop beta-<sha> and
+              # floating aliases so the catalog cannot advertise a moving target.
+              rel = sorted({t for t in tags if SEMVER.match(t)},
+                           key=lambda t: tuple(int(x) for x in SEMVER.match(t).groups()),
+                           reverse=True)
+              other = sorted({t for t in tags if not SEMVER.match(t)})
+              entries.append({
+                  "short": short, "host": registry_host(r["uri"]),
+                  "releases": rel, "prerelease": other, "desc": describe(short),
+              })
+
+          published = [e for e in entries if e["releases"]]
+          empty = [e for e in entries if not e["releases"]]
+
+          # Deliberately no generation timestamp: it would differ on every run and force a
+          # commit each day even when no module changed. The commit date already records
+          # when the catalog last actually moved.
+          print(f"<!-- generated by isceco/github-workflows update_module_catalog.yml - do not edit by hand -->")
+          print(f"_{len(published)} modules published to `{ns}`._\n")
+          print("| Module | Latest | Versions | Description |")
+          print("|---|---|---|---|")
+          for e in entries:
+              name = f"[`{e['short']}`](https://github.com/{org}/{e['short']})" if org else f"`{e['short']}`"
+              latest = f"`{e['releases'][0]}`" if e["releases"] else "_none_"
+              count = str(len(e["releases"])) if e["releases"] else "0"
+              print(f"| {name} | {latest} | {count} | {e['desc']} |")
+
+          if published:
+              ex = published[0]
+              print(f"\n## Usage\n")
+              print("Modules are published as OCI artifacts and require OpenTofu 1.10 or later.")
+              print("Terraform does not support `oci://` module sources.\n")
+              print("```hcl")
+              print(f'module "{ex["short"].replace("terraform-aws-", "").replace("-module", "").replace("-", "_")}" {{')
+              print(f'  source = "oci://{ex["host"]}/{ns}/{ex["short"]}?tag={ex["releases"][0]}"')
+              print("}")
+              print("```")
+
+          print("\n## All versions\n")
+          for e in published:
+              print(f"<details><summary><code>{e['short']}</code> ({len(e['releases'])} versions)</summary>\n")
+              print(f"```\noci://{e['host']}/{ns}/{e['short']}?tag=<version>\n```\n")
+              print(", ".join(f"`{v}`" for v in e["releases"]))
+              if e["prerelease"]:
+                  print(f"\nNon-release tags: " + ", ".join(f"`{v}`" for v in e["prerelease"]))
+              print("\n</details>\n")
+
+          if empty:
+              print("\n## Registry entries with no published release\n")
+              print("These have a repository in the registry but no semver artifact yet.\n")
+              for e in empty:
+                  extra = f" (non-release tags: {', '.join('`'+v+'`' for v in e['prerelease'])})" if e["prerelease"] else ""
+                  print(f"- `{e['short']}`{extra}")
+          PY
+          echo "module_count=$(jq 'length' /tmp/repos.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Apply to target file
+        id: apply
+        env:
+          TARGET: ${{ inputs.target_file }}
+          MARKER: ${{ inputs.marker }}
+        run: |
+          set -euo pipefail
+          BEGIN="<!-- BEGIN_${MARKER} -->"
+          END="<!-- END_${MARKER} -->"
+
+          if [ ! -f "$TARGET" ]; then
+            echo "::error::$TARGET does not exist"; exit 1
+          fi
+          if ! grep -qF "$BEGIN" "$TARGET" || ! grep -qF "$END" "$TARGET"; then
+            echo "::error::$TARGET must contain both $BEGIN and $END markers"; exit 1
+          fi
+
+          python3 - "$TARGET" "$BEGIN" "$END" /tmp/catalog.md <<'PY'
+          import sys
+          target, begin, end, gen = sys.argv[1:5]
+          body = open(target).read()
+          b, e = body.index(begin), body.index(end)
+          if e < b:
+              sys.exit(f"{end} appears before {begin} in {target}")
+          new = body[:b + len(begin)] + "\n" + open(gen).read().rstrip() + "\n" + body[e:]
+          open(target, "w").write(new)
+          PY
+
+          if git diff --quiet -- "$TARGET"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Catalog already up to date"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit
+        if: steps.apply.outputs.changed == 'true'
+        env:
+          TARGET: ${{ inputs.target_file }}
+          MSG: ${{ inputs.commit_message }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- "$TARGET"
+          git commit -m "$MSG"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Module catalog"
+            echo ""
+            echo "- modules in registry: ${{ steps.render.outputs.module_count }}"
+            echo "- catalog changed: ${{ steps.apply.outputs.changed }}"
+          } >> "$GITHUB_STEP_SUMMARY"
