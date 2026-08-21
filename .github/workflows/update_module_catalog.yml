@@ -125,7 +125,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY' > /tmp/catalog.md
-          import json, os, re, subprocess
+          import json, os, re, subprocess, sys
 
           ns = os.environ["NAMESPACE"]
           org = os.environ.get("SOURCE_ORG", "").strip()
@@ -140,6 +140,12 @@ jobs:
               host = uri.split("/", 1)[0]
               return re.sub(r"^\d{12}\.", "<ACCOUNT_ID>.", host) if mask else host
 
+          # Reading descriptions needs a token that can see the other repositories in the
+          # organization. The default GITHUB_TOKEN is scoped to the calling repository, so
+          # against private module repositories every lookup fails and the column comes out
+          # blank. Warn once rather than failing the run, and never swallow it silently.
+          _warned = [False]
+
           def describe(name):
               if not org:
                   return ""
@@ -147,8 +153,19 @@ jobs:
                   out = subprocess.run(
                       ["gh", "api", f"/repos/{org}/{name}", "-q", ".description // \"\""],
                       capture_output=True, text=True, timeout=20)
-                  return out.stdout.strip() if out.returncode == 0 else ""
-              except Exception:
+                  if out.returncode != 0:
+                      if not _warned[0]:
+                          print(f"::warning::cannot read repository descriptions from "
+                                f"'{org}'; the token in use cannot see those repositories, "
+                                f"so the description column will be empty",
+                                file=sys.stderr)
+                          _warned[0] = True
+                      return ""
+                  return out.stdout.strip()
+              except Exception as exc:
+                  if not _warned[0]:
+                      print(f"::warning::description lookup failed: {exc}", file=sys.stderr)
+                      _warned[0] = True
                   return ""
 
           entries = []
@@ -197,7 +214,9 @@ jobs:
           print("\n## All versions\n")
           for e in published:
               print(f"<details><summary><code>{e['short']}</code> ({len(e['releases'])} versions)</summary>\n")
-              print(f"```\noci://{e['host']}/{ns}/{e['short']}?tag=<version>\n```\n")
+              # pin the snippet to the newest version rather than a <version> placeholder,
+              # so it can be copied straight into a module block without editing
+              print(f"```\noci://{e['host']}/{ns}/{e['short']}?tag={e['releases'][0]}\n```\n")
               print(", ".join(f"`{v}`" for v in e["releases"]))
               if e["prerelease"]:
                   print(f"\nNon-release tags: " + ", ".join(f"`{v}`" for v in e["prerelease"]))
