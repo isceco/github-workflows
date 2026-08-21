@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.0](https://github.com/isceco/github-workflows/compare/v1.4.0...v1.5.0) (2026-08-21)
+
+
+### Features
+
+* add reusable update_module_catalog workflow ([0d9520f](https://github.com/isceco/github-workflows/commit/0d9520f0f63324f68cf467687c19431c5f18fb30))
+
+
+### Bug Fixes
+
+* pin checkov-action to a commit instead of master ([820423f](https://github.com/isceco/github-workflows/commit/820423f9b0898fdc01a3234a955c880fb487b5a6))
+
 ## [1.4.0](https://github.com/isceco/github-workflows/compare/v1.3.0...v1.4.0) (2026-08-19)
 
 
