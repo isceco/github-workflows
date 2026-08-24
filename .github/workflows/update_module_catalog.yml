@@ -42,6 +42,11 @@ on:
         default: ''
         required: false
         type: string
+      metadata_app_id:
+        description: 'App id of a GitHub App with metadata:read across the organization, used to read repository descriptions. The default GITHUB_TOKEN is scoped to the calling repository and cannot see private sibling repositories, so descriptions stay blank without this. Requires the METADATA_APP_PRIVATE_KEY secret.'
+        default: ''
+        required: false
+        type: string
       mask_account_id:
         description: 'Render the registry host as <ACCOUNT_ID>.dkr.ecr... instead of the real account id. Set true if the target repository is, or may become, public.'
         default: false
@@ -61,6 +66,9 @@ on:
       AWS_ROLE_ARN:
         description: 'Read-only OIDC role ARN for the registry account. Also determines which account is read.'
         required: true
+      METADATA_APP_PRIVATE_KEY:
+        description: 'Private key of the GitHub App identified by metadata_app_id. Optional; without it descriptions are left blank.'
+        required: false
     outputs:
       changed:
         description: 'true if the catalog content changed and was committed'
@@ -113,6 +121,18 @@ jobs:
             mv /tmp/versions.next.json /tmp/versions.json
           done
 
+      # Scoped to the whole organization by passing owner without repositories, which is
+      # what lets the renderer read descriptions of sibling repositories. Skipped entirely
+      # when no app is configured, leaving the description column blank.
+      - name: Mint organization metadata token
+        id: metadata_token
+        if: inputs.metadata_app_id != ''
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ inputs.metadata_app_id }}
+          private-key: ${{ secrets.METADATA_APP_PRIVATE_KEY }}
+          owner: ${{ inputs.source_organization }}
+
       - name: Render catalog
         id: render
         env:
@@ -121,7 +141,7 @@ jobs:
           NAMESPACE: ${{ inputs.ecr_namespace }}
           SOURCE_ORG: ${{ inputs.source_organization }}
           MASK_ACCOUNT_ID: ${{ inputs.mask_account_id }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.metadata_token.outputs.token || github.token }}
         run: |
           set -euo pipefail
           python3 - <<'PY' > /tmp/catalog.md
