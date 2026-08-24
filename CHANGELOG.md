@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.0](https://github.com/isceco/github-workflows/compare/v1.6.0...v1.7.0) (2026-08-24)
+
+
+### Features
+
+* prefer a module metadata file for descriptions ([198a220](https://github.com/isceco/github-workflows/commit/198a2201d71da4807f243a254ce76402b6483e92))
+
 ## [1.6.0](https://github.com/isceco/github-workflows/compare/v1.5.1...v1.6.0) (2026-08-24)
 
 
