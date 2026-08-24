@@ -47,11 +47,6 @@ on:
         default: ''
         required: false
         type: string
-      module_metadata_file:
-        description: 'Path within each module repository to a metadata file whose single-line "description:" overrides the GitHub About field. Set empty to always use About.'
-        default: '.ntc-module.yml'
-        required: false
-        type: string
       mask_account_id:
         description: 'Render the registry host as <ACCOUNT_ID>.dkr.ecr... instead of the real account id. Set true if the target repository is, or may become, public.'
         default: false
@@ -145,18 +140,16 @@ jobs:
           VERSIONS_JSON: /tmp/versions.json
           NAMESPACE: ${{ inputs.ecr_namespace }}
           SOURCE_ORG: ${{ inputs.source_organization }}
-          META_FILE: ${{ inputs.module_metadata_file }}
           MASK_ACCOUNT_ID: ${{ inputs.mask_account_id }}
           GH_TOKEN: ${{ steps.metadata_token.outputs.token || github.token }}
         run: |
           set -euo pipefail
           python3 - <<'PY' > /tmp/catalog.md
-          import base64, json, os, re, subprocess, sys
+          import json, os, re, subprocess, sys
 
           ns = os.environ["NAMESPACE"]
           org = os.environ.get("SOURCE_ORG", "").strip()
           mask = os.environ.get("MASK_ACCOUNT_ID", "false").lower() == "true"
-          meta_file = os.environ.get("META_FILE", "").strip()
 
           repos = json.load(open(os.environ["REPOS_JSON"]))
           versions = json.load(open(os.environ["VERSIONS_JSON"]))
@@ -167,7 +160,7 @@ jobs:
               host = uri.split("/", 1)[0]
               return re.sub(r"^\d{12}\.", "<ACCOUNT_ID>.", host) if mask else host
 
-          # Reading either source needs a token that can see the other repositories in the
+          # Reading descriptions needs a token that can see the other repositories in the
           # organization. The default GITHUB_TOKEN is scoped to the calling repository, so
           # against private module repositories every lookup fails. Warn once rather than
           # failing the run, and never swallow it silently.
@@ -185,27 +178,6 @@ jobs:
                       print(f"::warning::lookup failed: {exc}", file=sys.stderr)
                       _warned[0] = True
                   return False, ""
-
-          # Single-line "description:" only. Parsed with a regex rather than a YAML library
-          # so the workflow carries no dependency beyond what the runner already has.
-          DESC_LINE = re.compile(r"^description:\s*(.+?)\s*$", re.MULTILINE)
-
-          def module_file_description(name):
-              """description from the module's own metadata file, or '' if absent."""
-              if not org or not meta_file:
-                  return ""
-              ok, body = _gh(["api", f"/repos/{org}/{name}/contents/{meta_file}",
-                              "-q", ".content"])
-              if not ok or not body.strip():
-                  return ""
-              try:
-                  text = base64.b64decode(body).decode("utf-8", "replace")
-              except Exception:
-                  return ""
-              m = DESC_LINE.search(text)
-              if not m:
-                  return ""
-              return m.group(1).strip().strip('"').strip("'")
 
           def repo_about(name):
               """(repo_exists, description) from the GitHub About field."""
@@ -233,24 +205,15 @@ jobs:
                            key=lambda t: tuple(int(x) for x in SEMVER.match(t).groups()),
                            reverse=True)
               other = sorted({t for t in tags if not SEMVER.match(t)})
-              # The module's own metadata file wins over the GitHub About field, so the
-              # description lives with the code and is reviewed with it. About is the
-              # fallback for modules that have not adopted the file.
               exists, about = repo_about(short)
-              from_file = module_file_description(short) if exists else ""
               entries.append({
                   "short": short, "host": registry_host(r["uri"]),
                   "releases": rel, "prerelease": other,
-                  "desc": from_file or about,
-                  "desc_source": "file" if from_file else ("about" if about else "none"),
+                  "desc": about,
                   # a registry entry can outlive its source repository, or never have had
                   # one; linking to a repository that 404s is worse than not linking
                   "linkable": exists,
               })
-
-          with open("/tmp/descsrc", "w") as fh:
-              for e in entries:
-                  fh.write(f"DESCSRC {e['desc_source']}\n")
 
           published = [e for e in entries if e["releases"]]
           empty = [e for e in entries if not e["releases"]]
@@ -299,8 +262,6 @@ jobs:
                   print(f"- `{e['short']}`{extra}")
           PY
           echo "module_count=$(jq 'length' /tmp/repos.json)" >> "$GITHUB_OUTPUT"
-          echo "desc_from_file=$(grep -c '^DESCSRC file$' /tmp/descsrc 2>/dev/null || echo 0)" >> "$GITHUB_OUTPUT"
-          echo "desc_from_about=$(grep -c '^DESCSRC about$' /tmp/descsrc 2>/dev/null || echo 0)" >> "$GITHUB_OUTPUT"
 
       - name: Apply to target file
         id: apply
@@ -358,6 +319,4 @@ jobs:
             echo ""
             echo "- modules in registry: ${{ steps.render.outputs.module_count }}"
             echo "- catalog changed: ${{ steps.apply.outputs.changed }}"
-            echo "- descriptions from module metadata file: ${{ steps.render.outputs.desc_from_file }}"
-            echo "- descriptions from GitHub About: ${{ steps.render.outputs.desc_from_about }}"
           } >> "$GITHUB_STEP_SUMMARY"
