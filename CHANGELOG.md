@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.0](https://github.com/isceco/github-workflows/compare/v1.7.0...v1.8.0) (2026-08-24)
+
+
+### Features
+
+* notify the documentation repository after a publish ([57efb3a](https://github.com/isceco/github-workflows/commit/57efb3aad993590649f90e10abf4bb24352a178c))
+
 ## [1.7.0](https://github.com/isceco/github-workflows/compare/v1.6.0...v1.7.0) (2026-08-24)
 
 
