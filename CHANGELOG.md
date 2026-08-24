@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/isceco/github-workflows/compare/v1.5.1...v1.6.0) (2026-08-24)
+
+
+### Features
+
+* read repository descriptions via a GitHub App token ([616b3b5](https://github.com/isceco/github-workflows/commit/616b3b5b15c78e76e969fa61822a9a7597efa87c))
+
 ## [1.5.1](https://github.com/isceco/github-workflows/compare/v1.5.0...v1.5.1) (2026-08-21)
 
 
