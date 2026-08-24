@@ -48,6 +48,16 @@ on:
         default: true
         required: false
         type: boolean
+      docs_repository:
+        description: 'Repository name (without owner) to notify after a successful publish, so its module catalog refreshes immediately. Empty disables the notification; the catalog still refreshes on its own schedule. Requires dispatch_app_id and the DOCS_DISPATCH_APP_PRIVATE_KEY secret.'
+        default: ''
+        required: false
+        type: string
+      dispatch_app_id:
+        description: 'App id of a GitHub App with contents:write on docs_repository, used to send the refresh notification. Install that app on the documentation repository only.'
+        default: ''
+        required: false
+        type: string
       runner:
         description: 'Runner to publish from'
         default: 'ubuntu-latest'
@@ -57,6 +67,9 @@ on:
       AWS_ROLE_ARN:
         description: 'OIDC role ARN to assume for publishing. Also determines the target account, and therefore the registry URI.'
         required: true
+      DOCS_DISPATCH_APP_PRIVATE_KEY:
+        description: 'Private key of the app identified by dispatch_app_id. Optional; without it the documentation notification is skipped.'
+        required: false
     outputs:
       artifact_uri:
         description: 'Full OCI URI of the published artifact'
@@ -190,6 +203,45 @@ jobs:
             --annotation "org.opencontainers.image.description=OpenTofu module: ${MODULE_NAME}" \
             --annotation "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
             --annotation "org.opencontainers.image.revision=${GITHUB_SHA}"
+
+      # A repository's GITHUB_TOKEN is scoped to that repository and cannot dispatch to
+      # another one, so this needs an app token. The app is expected to be installed on the
+      # documentation repository alone: its private key is distributed to every module
+      # repository, and the installation scope is what limits the damage if one of them is
+      # compromised.
+      - name: Mint docs dispatch token
+        id: dispatch_token
+        if: ${{ inputs.docs_repository != '' && steps.check.outputs.skipped != 'true' }}
+        # the artifact is already published by this point; a documentation refresh that
+        # cannot authenticate must not turn a successful publish into a failed one
+        continue-on-error: true
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ inputs.dispatch_app_id }}
+          private-key: ${{ secrets.DOCS_DISPATCH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ inputs.docs_repository }}
+
+      # Best effort: a documentation refresh that does not fire is not a reason to fail a
+      # publish that already succeeded, and the catalog refreshes on its own schedule too.
+      - name: Notify documentation repository
+        if: ${{ inputs.docs_repository != '' && steps.check.outputs.skipped != 'true' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.dispatch_token.outputs.token }}
+          DOCS_REPO: ${{ inputs.docs_repository }}
+          MODULE_NAME: ${{ steps.resolve.outputs.module_name }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::notice::no dispatch token available, skipping documentation refresh"
+            exit 0
+          fi
+          gh api -X POST "/repos/${GITHUB_REPOSITORY_OWNER}/${DOCS_REPO}/dispatches" \
+            -f "event_type=module-published" \
+            -F "client_payload[module]=${MODULE_NAME}" \
+            -F "client_payload[version]=${VERSION}" \
+            && echo "::notice::requested catalog refresh in ${DOCS_REPO}"
 
       - name: Summary
         if: always()
