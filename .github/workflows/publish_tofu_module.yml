@@ -156,6 +156,7 @@ jobs:
             echo "module_name=${MODULE_NAME}"
             echo "ecr_repository=${ECR_REPOSITORY}"
             echo "artifact_uri=${ARTIFACT_URI}"
+            echo "module_source=oci://${ECR_REGISTRY}/${ECR_REPOSITORY}?tag=${VERSION}"
             echo "version=${VERSION}"
           } >> "$GITHUB_OUTPUT"
           echo "Publishing ${MODULE_NAME} ${VERSION} to ${ECR_REPOSITORY}"
@@ -285,7 +286,7 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          ARTIFACT_URI: ${{ steps.resolve.outputs.artifact_uri }}
+          MODULE_SOURCE: ${{ steps.resolve.outputs.module_source }}
           MODULE_NAME: ${{ steps.resolve.outputs.module_name }}
           VERSION: ${{ steps.resolve.outputs.version }}
           EXPIRE_DAYS: ${{ inputs.preview_expire_days }}
@@ -293,6 +294,8 @@ jobs:
         run: |
           set -euo pipefail
           MARKER="<!-- tofu-module-preview -->"
+          LABEL="${MODULE_NAME#terraform-aws-}"; LABEL="${LABEL%-module}"
+          MODULE_LABEL="${LABEL//-/_}"
           EXPIRES=$(date -u -d "+${EXPIRE_DAYS} days" +"%Y-%m-%d" 2>/dev/null \
                     || date -u -v "+${EXPIRE_DAYS}d" +"%Y-%m-%d")
           BODY=$(cat <<EOF
@@ -300,8 +303,8 @@ jobs:
           **Module preview published**
 
           \`\`\`hcl
-          module "${MODULE_NAME//terraform-aws-/}" {
-            source = "oci://${ARTIFACT_URI}"
+          module "${MODULE_LABEL}" {
+            source = "${MODULE_SOURCE}"
           }
           \`\`\`
 
