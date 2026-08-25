@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.0](https://github.com/isceco/github-workflows/compare/v1.11.0...v1.12.0) (2026-08-25)
+
+
+### Features
+
+* render Checkov findings into the run summary ([342174e](https://github.com/isceco/github-workflows/commit/342174ef04379ca0103772b3fb98583d83c84360))
+
 ## [1.11.0](https://github.com/isceco/github-workflows/compare/v1.10.0...v1.11.0) (2026-08-25)
 
 
