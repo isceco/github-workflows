@@ -87,6 +87,16 @@ on:
         default: 'v0.69.3'
         required: false
         type: string
+      trivy_fail_severity:
+        description: 'Comma-separated Trivy severities that fail the job. Matches what the previous reviewdog reporter treated as an error.'
+        default: 'HIGH,CRITICAL'
+        required: false
+        type: string
+      trivy_soft_fail:
+        description: 'Report Trivy findings without failing the job. The findings still appear in the annotations and the run summary. Set this for reusable modules, where Trivy flags a supported configuration (a public load balancer, a plain HTTP listener) that the caller rather than the module decides.'
+        default: false
+        required: false
+        type: boolean
       commit_user:
         description: 'Username which should be used for commits by github action'
         default: 'github-actions'
@@ -354,19 +364,134 @@ jobs:
           destination-path: .tflint.hcl
           token: ${{ steps.github_app_token.outputs.token || secrets.GITHUB_TOKEN }}
 
-      - name: Run TFLint
-        uses: reviewdog/action-tflint@54a5e5aed57dcfbb4662ec548de876df33d6288d # v1
-        id: lint
+      # tflint is run directly rather than through reviewdog/action-tflint.
+      #
+      # That action reports every diagnostic as a GitHub annotation, and GitHub caps
+      # annotations at 10 warnings per step. reviewdog treats hitting the cap as a fatal
+      # error and exits non-zero, which failed the job even when every diagnostic was an
+      # info or a warning and fail_level was set to error. The effect was a size limit
+      # rather than a severity gate: any module with more than ten diagnostics failed
+      # linting no matter how trivial they were.
+      #
+      # Running tflint directly puts every finding in the run summary, where there is no
+      # cap, and keeps annotations for the error severity findings that actually gate.
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@6e1e0642c0289bd619021bf6b34e3c08ed1e005a # v6.3.0
         with:
-          github_token: ${{ steps.github_app_token.outputs.token || secrets.GITHUB_TOKEN }}
-          working_directory: ${{ inputs.terraform_working_directory }}
           tflint_version: ${{ inputs.tflint_version }}
-          reporter: github-pr-check
-          fail_level: error
-          filter_mode: nofilter
-          level: error
-          flags: ""
-          tflint_init: true
+          github_token: ${{ steps.github_app_token.outputs.token || secrets.GITHUB_TOKEN }}
+          cache: true
+
+      - name: Run TFLint
+        id: tflint_run
+        working-directory: ${{ inputs.terraform_working_directory }}
+        env:
+          # tflint-load-config-action writes the shared config to the workspace root, which
+          # is not necessarily the directory tflint runs in
+          TFLINT_CONFIG: ${{ github.workspace }}/.tflint.hcl
+          GITHUB_TOKEN: ${{ steps.github_app_token.outputs.token || secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          ARGS=()
+          [ -f "${TFLINT_CONFIG}" ] && ARGS+=("--config=${TFLINT_CONFIG}")
+
+          tflint --init "${ARGS[@]}"
+
+          # --minimum-failure-severity ties the exit code to error severity while the json
+          # output still carries every diagnostic, so warnings stay visible in the summary
+          # without deciding the outcome.
+          tflint --format=json --minimum-failure-severity=error "${ARGS[@]}" \
+            > "${RUNNER_TEMP}/tflint.json"
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      # Reporting and the gate live here rather than in the step above, so that the summary
+      # is written even when tflint found something that fails the job.
+      - name: TFLint findings
+        id: lint
+        if: always() && steps.tflint_run.conclusion != 'skipped'
+        env:
+          TFLINT_EXIT: ${{ steps.tflint_run.outputs.exit_code }}
+          ANNOTATIONS: ${{ runner.temp }}/tflint-annotations.txt
+        run: |
+          set -uo pipefail
+          REPORT="${RUNNER_TEMP}/tflint.json"
+          : > "${ANNOTATIONS}"
+          if [ ! -s "${REPORT}" ]; then
+            {
+              echo "## TFLint"
+              echo ""
+              echo "No output was produced, so there is nothing to report."
+            } >> "$GITHUB_STEP_SUMMARY"
+            # exit code 1 means tflint itself failed rather than finding issues
+            [ "${TFLINT_EXIT}" = "1" ] && exit 1
+            exit 0
+          fi
+          python3 - "${REPORT}" >> "$GITHUB_STEP_SUMMARY" <<'PYEOF'
+          import collections, json, os, sys
+
+          data = json.load(open(sys.argv[1]))
+          issues = data.get("issues") or []
+          errors = data.get("errors") or []
+
+          def sev(issue):
+              return (issue.get("rule", {}).get("severity") or "unknown").lower()
+
+          print("## TFLint")
+          print()
+
+          if errors:
+              print("TFLint reported an internal error:")
+              print()
+              for e in errors:
+                  print(f"- {e.get('message', e)}")
+              print()
+
+          if not issues:
+              print("No findings.")
+          else:
+              counts = collections.Counter(sev(i) for i in issues)
+              order = ["error", "warning", "notice", "info", "unknown"]
+              shown = ", ".join(f"{counts[s]} {s}" for s in order if counts.get(s))
+              print(f"{len(issues)} finding(s): {shown}. Only error severity fails this job.")
+              print()
+              print("| Severity | Rule | Location | Message |")
+              print("|---|---|---|---|")
+              for i in sorted(issues, key=lambda x: order.index(sev(x)) if sev(x) in order else 99):
+                  rule = i.get("rule", {})
+                  rng = i.get("range", {})
+                  loc = f"{rng.get('filename','?')}:{(rng.get('start') or {}).get('line','?')}"
+                  name, link = rule.get("name", "?"), rule.get("link")
+                  label = f"[`{name}`]({link})" if link else f"`{name}`"
+                  print(f"| {sev(i)} | {label} | `{loc}` | {i.get('message','')[:100]} |")
+
+          # Annotations only for the severity that gates, and capped well under GitHub's
+          # limit of ten per step. Everything else is in the table above.
+          #
+          # These are written to a file rather than printed, because this script's stdout is
+          # redirected into the step summary, where a workflow command is inert text.
+          err_issues = [i for i in issues if sev(i) == "error"]
+          with open(os.environ["ANNOTATIONS"], "w") as fh:
+              for i in err_issues[:8]:
+                  rng = i.get("range", {})
+                  start = rng.get("start") or {}
+                  msg = i.get("message", "").replace("\n", " ")
+                  fh.write(f"::error file={rng.get('filename','')},"
+                           f"line={start.get('line', 1)}::"
+                           f"{i.get('rule', {}).get('name', 'tflint')}: {msg}\n")
+          PYEOF
+
+          cat "${ANNOTATIONS}"
+
+          # tflint exits 1 on its own failure, 2 when it found issues at or above the
+          # configured minimum failure severity
+          if [ "${TFLINT_EXIT}" = "1" ]; then
+            echo "::error::tflint failed to run"
+            exit 1
+          fi
+          if [ "${TFLINT_EXIT}" = "2" ]; then
+            echo "::error::tflint reported findings at error severity"
+            exit 1
+          fi
 
   terraform-security:
     needs:
@@ -408,21 +533,114 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref || github.ref }}
           token: ${{ steps.github_app_token.outputs.token || secrets.GITHUB_TOKEN }}
 
-      - name: Run Trivy
-        uses: reviewdog/action-trivy@102f1eda529aaab3502cbef08bbb0050ee0b6b60 # v1
-        id: security
+      # Trivy is run directly rather than through reviewdog/action-trivy, for the same
+      # reason as tflint above: the reviewdog reporter turns findings into annotations and
+      # fails once GitHub's per-step annotation cap is reached, which makes the outcome
+      # depend on how many findings there are rather than how severe they are.
+      - name: Setup Trivy
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
         with:
-          github_token: ${{ steps.github_app_token.outputs.token || secrets.GITHUB_TOKEN }}
-          working_directory: ${{ inputs.terraform_working_directory }}
-          reporter: github-pr-check
-          fail_level: error
-          filter_mode: nofilter
-          level: error
-          flags: ""
-          trivy_flags: ""
-          trivy_command: config
-          trivy_target: .
-          trivy_version: ${{ inputs.trivy_version }}
+          version: ${{ inputs.trivy_version }}
+          cache: true
+
+      - name: Run Trivy
+        id: trivy_run
+        working-directory: ${{ inputs.terraform_working_directory }}
+        run: |
+          set -uo pipefail
+          # always exit 0 here; the severity gate is applied from the json below, so that
+          # the summary is produced whatever Trivy found
+          trivy config . \
+            --format json \
+            --output "${RUNNER_TEMP}/trivy.json" \
+            --exit-code 0 \
+            --quiet
+
+      # Same reasoning as the Checkov summary further down: a finding that only exists in
+      # the raw log is invisible in practice.
+      - name: Trivy findings
+        id: security
+        if: always() && steps.trivy_run.conclusion != 'skipped'
+        env:
+          FAIL_SEVERITY: ${{ inputs.trivy_fail_severity }}
+          SOFT_FAIL: ${{ inputs.trivy_soft_fail }}
+          ANNOTATIONS: ${{ runner.temp }}/trivy-annotations.txt
+        run: |
+          set -uo pipefail
+          REPORT="${RUNNER_TEMP}/trivy.json"
+          : > "${ANNOTATIONS}"
+          if [ ! -s "${REPORT}" ]; then
+            {
+              echo "## Trivy"
+              echo ""
+              echo "No output was produced, so there is nothing to report."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python3 - "${REPORT}" >> "$GITHUB_STEP_SUMMARY" <<'PYEOF'
+          import collections, json, os, sys
+
+          data = json.load(open(sys.argv[1]))
+          gating = {s.strip().upper() for s in os.environ["FAIL_SEVERITY"].split(",") if s.strip()}
+          soft = os.environ["SOFT_FAIL"] == "true"
+
+          findings = []
+          for result in data.get("Results") or []:
+              for m in result.get("Misconfigurations") or []:
+                  findings.append((result.get("Target", "?"), m))
+
+          print("## Trivy")
+          print()
+          if not findings:
+              print("No findings.")
+              raise SystemExit
+
+          rank = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]
+          counts = collections.Counter(m.get("Severity", "UNKNOWN") for _, m in findings)
+          blocking = [f for f in findings if f[1].get("Severity", "").upper() in gating]
+
+          summary = ", ".join(f"{counts[s]} {s.lower()}" for s in rank if counts.get(s))
+          note = (" Reported only, not blocking this run."
+                  if soft else
+                  f" {', '.join(sorted(gating))} fail this job.")
+          print(f"{len(findings)} finding(s): {summary}.{note}")
+          print()
+          print("| Severity | Check | Location | Message |")
+          print("|---|---|---|---|")
+          for target, m in sorted(
+              findings,
+              key=lambda f: rank.index(f[1].get("Severity", "UNKNOWN"))
+              if f[1].get("Severity", "UNKNOWN") in rank else 99,
+          )[:80]:
+              line = (m.get("CauseMetadata") or {}).get("StartLine") or "?"
+              check_id = m.get("AVDID") or m.get("ID") or "?"
+              url = m.get("PrimaryURL")
+              label = f"[`{check_id}`]({url})" if url else f"`{check_id}`"
+              msg = (m.get("Message") or m.get("Title") or "").replace("\n", " ")
+              print(f"| {m.get('Severity','?')} | {label} | `{target}:{line}` | {msg[:100]} |")
+          if len(findings) > 80:
+              print(f"\n... and {len(findings) - 80} more.")
+
+          # Annotations for the gating severities only, capped under GitHub's per-step
+          # limit. Written to a file because stdout here becomes the step summary.
+          with open(os.environ["ANNOTATIONS"], "w") as fh:
+              kind = "warning" if soft else "error"
+              for target, m in blocking[:8]:
+                  line = (m.get("CauseMetadata") or {}).get("StartLine") or 1
+                  msg = (m.get("Message") or m.get("Title") or "").replace("\n", " ")
+                  fh.write(f"::{kind} file={target},line={line}::"
+                           f"{m.get('AVDID') or m.get('ID')}: {msg}\n")
+              fh.write(f"#blocking={len(blocking)}\n")
+          PYEOF
+
+          grep -v '^#blocking=' "${ANNOTATIONS}" || true
+          BLOCKING=$(grep '^#blocking=' "${ANNOTATIONS}" | cut -d= -f2)
+          BLOCKING="${BLOCKING:-0}"
+
+          if [ "${BLOCKING}" -gt 0 ] && [ "${SOFT_FAIL}" != "true" ]; then
+            echo "::error::Trivy reported ${BLOCKING} finding(s) at ${FAIL_SEVERITY}"
+            exit 1
+          fi
 
       - name: Run Checkov
         id: checkov
