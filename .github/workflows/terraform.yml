@@ -396,6 +396,66 @@ jobs:
           log_level: ${{ inputs.checkov_log_level || 'WARNING' }} # optional: set log level {CRITICAL, ERROR, WARNING, INFO, DEBUG}
           directory: ${{ inputs.terraform_working_directory }}
 
+      # Checkov writes SARIF but nothing reads it, and unlike Trivy it produces no
+      # reviewdog annotations. With soft fail enabled the job goes green, so without this
+      # the findings exist only in the raw log and are effectively invisible, which defeats
+      # the point of reporting instead of blocking.
+      - name: Checkov findings summary
+        if: ${{ always() && inputs.checkov_enabled != 'false' }}
+        env:
+          SOFT_FAIL: ${{ inputs.checkov_soft_fail }}
+        run: |
+          set -uo pipefail
+          # the action writes results.sarif; the checkov CLI names it results_sarif.sarif
+          SARIF=$(find "${GITHUB_WORKSPACE}" -maxdepth 3 -name 'results*.sarif' -print -quit 2>/dev/null)
+          if [ -z "${SARIF}" ]; then
+            echo "## Checkov" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "No SARIF output was produced, so there is nothing to report." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python3 - "$SARIF" "$SOFT_FAIL" >> "$GITHUB_STEP_SUMMARY" <<'PYEOF'
+          import collections, json, os, sys
+
+          sarif, soft = sys.argv[1], sys.argv[2] == "true"
+          data = json.load(open(sarif))
+          runs = data.get("runs") or [{}]
+          results = runs[0].get("results") or []
+          rules = {r.get("id"): r for r in (runs[0].get("tool", {}).get("driver", {}).get("rules") or [])}
+
+          print("## Checkov")
+          print()
+          if not results:
+              print("No findings.")
+              raise SystemExit
+
+          by_rule = collections.Counter(r.get("ruleId") for r in results)
+          print(f"{len(results)} finding(s) across {len(by_rule)} check(s)."
+                + (" Reported only, not blocking this run." if soft else ""))
+          print()
+          print("| Check | Count | Description |")
+          print("|---|---:|---|")
+          for rule_id, count in by_rule.most_common():
+              rule = rules.get(rule_id, {})
+              desc = (rule.get("shortDescription", {}) or {}).get("text") or rule.get("name") or ""
+              help_uri = rule.get("helpUri")
+              label = f"[`{rule_id}`]({help_uri})" if help_uri else f"`{rule_id}`"
+              print(f"| {label} | {count} | {desc[:90]} |")
+
+          print()
+          print("<details><summary>Where</summary>")
+          print()
+          for r in results[:60]:
+              loc = ((r.get("locations") or [{}])[0].get("physicalLocation") or {})
+              uri = (loc.get("artifactLocation") or {}).get("uri", "?")
+              line = (loc.get("region") or {}).get("startLine", "?")
+              print(f"- `{r.get('ruleId')}` {uri}:{line}")
+          if len(results) > 60:
+              print(f"- ... and {len(results) - 60} more")
+          print()
+          print("</details>")
+          PYEOF
+
   terraform-execution:
     needs:
       - terraform-fmt
