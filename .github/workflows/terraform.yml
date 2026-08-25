@@ -173,10 +173,19 @@ jobs:
       fmt_status: ${{ steps.fmt.outcome }}
       diff_exists: ${{ steps.fmt_commit.outputs.diff }}
 
+    env:
+      # the secrets context cannot be read from a step level if, so it is surfaced
+      # here as a plain value that a step condition can test
+      GH_APP_CONFIGURED: ${{ secrets.GH_APP_ID != '' && secrets.GH_APP_PRIVATE_KEY != '' }}
     steps:
+      # Skipped rather than allowed to fail when no app is configured. continue-on-error
+      # stops the failure but not the error annotation, so every run of a repository that
+      # does not use private modules showed red errors on an otherwise green result, which
+      # teaches people to ignore annotations.
       - name: Get Github Access Token
         id: github_app_token
-        continue-on-error: true # Use continue-on-error to handle missing secrets
+        if: env.GH_APP_CONFIGURED == 'true'
+        continue-on-error: true
         uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.GH_APP_ID }}
@@ -244,10 +253,19 @@ jobs:
       docs_status: ${{ steps.docs.outcome }}
       diff_exists: ${{ steps.docs.outputs.num_changed > 0 }}
 
+    env:
+      # the secrets context cannot be read from a step level if, so it is surfaced
+      # here as a plain value that a step condition can test
+      GH_APP_CONFIGURED: ${{ secrets.GH_APP_ID != '' && secrets.GH_APP_PRIVATE_KEY != '' }}
     steps:
+      # Skipped rather than allowed to fail when no app is configured. continue-on-error
+      # stops the failure but not the error annotation, so every run of a repository that
+      # does not use private modules showed red errors on an otherwise green result, which
+      # teaches people to ignore annotations.
       - name: Get Github Access Token
         id: github_app_token
-        continue-on-error: true # Use continue-on-error to handle missing secrets
+        if: env.GH_APP_CONFIGURED == 'true'
+        continue-on-error: true
         uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.GH_APP_ID }}
@@ -291,10 +309,19 @@ jobs:
     outputs:
       lint_status: ${{ steps.lint.outcome }}
 
+    env:
+      # the secrets context cannot be read from a step level if, so it is surfaced
+      # here as a plain value that a step condition can test
+      GH_APP_CONFIGURED: ${{ secrets.GH_APP_ID != '' && secrets.GH_APP_PRIVATE_KEY != '' }}
     steps:
+      # Skipped rather than allowed to fail when no app is configured. continue-on-error
+      # stops the failure but not the error annotation, so every run of a repository that
+      # does not use private modules showed red errors on an otherwise green result, which
+      # teaches people to ignore annotations.
       - name: Get Github Access Token
         id: github_app_token
-        continue-on-error: true # Use continue-on-error to handle missing secrets
+        if: env.GH_APP_CONFIGURED == 'true'
+        continue-on-error: true
         uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.GH_APP_ID }}
@@ -346,10 +373,19 @@ jobs:
     outputs:
       security_status: ${{ steps.security.outcome }}
 
+    env:
+      # the secrets context cannot be read from a step level if, so it is surfaced
+      # here as a plain value that a step condition can test
+      GH_APP_CONFIGURED: ${{ secrets.GH_APP_ID != '' && secrets.GH_APP_PRIVATE_KEY != '' }}
     steps:
+      # Skipped rather than allowed to fail when no app is configured. continue-on-error
+      # stops the failure but not the error annotation, so every run of a repository that
+      # does not use private modules showed red errors on an otherwise green result, which
+      # teaches people to ignore annotations.
       - name: Get Github Access Token
         id: github_app_token
-        continue-on-error: true # Use continue-on-error to handle missing secrets
+        if: env.GH_APP_CONFIGURED == 'true'
+        continue-on-error: true
         uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.GH_APP_ID }}
