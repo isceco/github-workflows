@@ -1,0 +1,9 @@
+# Pull requests here automatically request a review from the platform team.
+#
+# This requests reviewers, it does not require them. Requiring an approval before a merge
+# needs branch protection or an organization ruleset, and neither is available for private
+# repositories on the GitHub Free plan. Until the organization is upgraded, review before
+# merge is a convention rather than something the platform enforces, and a direct push to
+# main will still cut a release.
+
+* @isceco/pc-core-platform-team
