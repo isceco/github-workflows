@@ -14,9 +14,13 @@ updates:
       time: "06:20"
     open-pull-requests-limit: 5
     commit-message:
-      # release-please parses this, and a dependency bump should not cut a release of the
-      # workflows on its own
-      prefix: "chore"
+      # fix rather than chore, so a bump cuts a patch release.
+      #
+      # These workflows exist to be consumed by other repositories, which pin a released
+      # tag. A dependency update that lands on main without a release never reaches them:
+      # the pinned versions here would move while every consumer stayed on the last tag,
+      # which is the opposite of what pinning plus Dependabot is for.
+      prefix: "fix"
     labels:
       - "dependencies"
     groups:
