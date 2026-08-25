@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.0](https://github.com/isceco/github-workflows/compare/v1.8.0...v1.9.0) (2026-08-25)
+
+
+### Features
+
+* publish a preview artifact for pull requests ([46e96e2](https://github.com/isceco/github-workflows/commit/46e96e21ad06a8dbb73021e95c88a2d2642900de))
+
 ## [1.8.0](https://github.com/isceco/github-workflows/compare/v1.7.0...v1.8.0) (2026-08-24)
 
 
