@@ -1,0 +1,166 @@
+name: CONVENTIONAL PULL REQUEST
+# Reusable workflow: check that a pull request title follows Conventional Commits, and
+# point out when a change will not produce a release.
+#
+# The title is checked rather than the individual commits because these repositories squash
+# by default, and a squash takes its subject from the pull request title. Set check_commits
+# to also validate every commit, for repositories that merge rather than squash.
+#
+# The second check is the one that earns its keep. release-please only bumps on feat, fix
+# and a breaking marker; chore, ci, docs, refactor, style, test and build produce no
+# release at all. So "chore: rewrite the key policy" is valid Conventional Commits, passes
+# any format linter, merges cleanly, and silently never reaches consumers. That is a
+# worse failure than a malformed title, because nothing anywhere reports it.
+
+on:
+  workflow_call:
+    inputs:
+      types:
+        description: 'Allowed types, pipe separated. Defaults to the Conventional Commits set.'
+        default: 'feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert'
+        required: false
+        type: string
+      releasing_types:
+        description: 'Types that cause release-please to cut a release. A breaking marker always releases.'
+        default: 'feat|fix|perf'
+        required: false
+        type: string
+      release_relevant_paths:
+        description: 'Newline separated globs that count as consumer-visible change. A pull request touching these with a non-releasing type is reported.'
+        default: |
+          *.tf
+          *.tf.json
+        required: false
+        type: string
+      fail_on_non_releasing:
+        description: 'Fail rather than warn when a non-releasing type modifies release relevant paths. Warning by default, because a deliberate chore touching these files is legitimate.'
+        default: false
+        required: false
+        type: boolean
+      check_commits:
+        description: 'Also require every commit in the pull request to follow Conventional Commits. Leave false when squashing, where only the title reaches the default branch.'
+        default: false
+        required: false
+        type: boolean
+      runner:
+        default: 'ubuntu-latest'
+        required: false
+        type: string
+    outputs:
+      type:
+        description: 'The type parsed from the pull request title'
+        value: ${{ jobs.check.outputs.type }}
+      will_release:
+        description: 'true if this title would cause release-please to cut a release'
+        value: ${{ jobs.check.outputs.will_release }}
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  check:
+    name: Conventional Pull Request
+    runs-on: ${{ inputs.runner }}
+    outputs:
+      type: ${{ steps.title.outputs.type }}
+      will_release: ${{ steps.title.outputs.will_release }}
+    steps:
+      - name: Check the title
+        id: title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+          TYPES: ${{ inputs.types }}
+          RELEASING: ${{ inputs.releasing_types }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TITLE:-}" ]; then
+            echo "::error::no pull request title found; this workflow only runs on pull_request events"
+            exit 1
+          fi
+
+          # type(optional scope)optional ! : description
+          PATTERN="^(${TYPES})(\([a-zA-Z0-9 ._/-]+\))?(!)?: .+"
+          if ! printf '%s' "$TITLE" | grep -qE "$PATTERN"; then
+            {
+              echo "::error::pull request title is not a Conventional Commit"
+              echo ""
+              echo "  title:    ${TITLE}"
+              echo "  expected: <type>[optional scope][!]: <description>"
+              echo "  types:    ${TYPES//|/, }"
+              echo ""
+              echo "  This matters beyond style: release-please derives the version from"
+              echo "  this line, and ignores anything it cannot parse, so a malformed"
+              echo "  title merges without ever cutting a release."
+            } >&2
+            exit 1
+          fi
+
+          TYPE=$(printf '%s' "$TITLE" | sed -E "s/^(${TYPES}).*/\1/")
+          BREAKING=false
+          printf '%s' "$TITLE" | grep -qE "^(${TYPES})(\([^)]*\))?!:" && BREAKING=true
+
+          WILL_RELEASE=false
+          if [ "$BREAKING" = "true" ] || printf '%s' "$TYPE" | grep -qE "^(${RELEASING})$"; then
+            WILL_RELEASE=true
+          fi
+
+          {
+            echo "type=${TYPE}"
+            echo "breaking=${BREAKING}"
+            echo "will_release=${WILL_RELEASE}"
+          } >> "$GITHUB_OUTPUT"
+          echo "title ok: type=${TYPE} breaking=${BREAKING} will_release=${WILL_RELEASE}"
+
+      # A valid title can still ship nothing. Report it here rather than leaving someone to
+      # notice weeks later that a merged change never appeared in the registry.
+      - name: Report a change that will not be released
+        if: steps.title.outputs.will_release != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PATHS: ${{ inputs.release_relevant_paths }}
+          TYPE: ${{ steps.title.outputs.type }}
+          FAIL: ${{ inputs.fail_on_non_releasing }}
+        run: |
+          set -euo pipefail
+          gh api "/repos/${GITHUB_REPOSITORY}/pulls/${{ github.event.pull_request.number }}/files" \
+            --paginate --jq '.[].filename' > /tmp/changed.txt || true
+
+          MATCHED=""
+          while IFS= read -r glob; do
+            [ -z "$glob" ] && continue
+            while IFS= read -r f; do
+              # shellcheck disable=SC2254
+              case "$f" in $glob) MATCHED="${MATCHED}${f}"$'\n' ;; esac
+              case "$f" in */$glob) MATCHED="${MATCHED}${f}"$'\n' ;; esac
+            done < /tmp/changed.txt
+          done <<< "$PATHS"
+          MATCHED=$(printf '%s' "$MATCHED" | sort -u | sed '/^$/d')
+
+          if [ -z "$MATCHED" ]; then
+            echo "no release relevant files changed; a '${TYPE}' title is fine here"
+            exit 0
+          fi
+
+          MSG="a '${TYPE}' title does not cut a release, but this pull request changes files consumers depend on"
+          {
+            echo "## Not going to be released"
+            echo ""
+            echo "This pull request is titled \`${TYPE}: …\`, and release-please only cuts a"
+            echo "release for \`feat\`, \`fix\` and breaking changes. Merging it will change the"
+            echo "default branch without publishing anything, so consumers keep the previous"
+            echo "version."
+            echo ""
+            echo "Files changed that consumers depend on:"
+            echo ""
+            printf '%s\n' "$MATCHED" | sed 's/^/- `/;s/$/`/'
+            echo ""
+            echo "Retitle as \`feat:\` or \`fix:\` if this should ship, or keep the current type"
+            echo "if it genuinely should not."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$FAIL" = "true" ]; then
+            echo "::error::${MSG}"
+            exit 1
+          fi
+          echo "::warning::${MSG}"
