@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.13.1](https://github.com/isceco/github-workflows/compare/v1.13.0...v1.13.1) (2026-08-25)
+
+
+### Bug Fixes
+
+* release dependency bumps so consumers receive them ([73e3942](https://github.com/isceco/github-workflows/commit/73e39422cda4c353c9540942ffa5660d804b1c58))
+
 ## [1.13.0](https://github.com/isceco/github-workflows/compare/v1.12.2...v1.13.0) (2026-08-25)
 
 
