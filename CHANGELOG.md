@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.1](https://github.com/isceco/github-workflows/compare/v1.12.0...v1.12.1) (2026-08-25)
+
+
+### Bug Fixes
+
+* skip the app token step when no app is configured ([de758b8](https://github.com/isceco/github-workflows/commit/de758b8d125854fd4a47ae0396f2011014262752))
+
 ## [1.12.0](https://github.com/isceco/github-workflows/compare/v1.11.0...v1.12.0) (2026-08-25)
 
 
