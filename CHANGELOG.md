@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.0](https://github.com/isceco/github-workflows/compare/v1.10.0...v1.11.0) (2026-08-25)
+
+
+### Features
+
+* allow Checkov to report without failing ([14d9e1c](https://github.com/isceco/github-workflows/commit/14d9e1cd8450fe70ee292c097a4ec867eccbbd5e))
+
 ## [1.10.0](https://github.com/isceco/github-workflows/compare/v1.9.0...v1.10.0) (2026-08-25)
 
 
