@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.13.0](https://github.com/isceco/github-workflows/compare/v1.12.2...v1.13.0) (2026-08-25)
+
+
+### Features
+
+* drop the external push action and pin the rest to commits ([117375e](https://github.com/isceco/github-workflows/commit/117375eb82c400d36dc4098b81c9f99545f7511d))
+
 ## [1.12.2](https://github.com/isceco/github-workflows/compare/v1.12.1...v1.12.2) (2026-08-25)
 
 
