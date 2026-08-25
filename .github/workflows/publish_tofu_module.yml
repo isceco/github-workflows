@@ -15,9 +15,20 @@ on:
   workflow_call:
     inputs:
       version:
-        description: 'Version to publish, e.g. v1.2.3. Must be an existing git tag in the calling repository.'
-        required: true
+        description: 'Version to publish, e.g. v1.2.3. Must be an existing git tag in the calling repository. Leave empty when preview is true, which derives its own tag.'
+        default: ''
+        required: false
         type: string
+      preview:
+        description: 'Publish a pull request preview instead of a release. Tags the artifact pr-<number>-<short sha>, packages the pull request head rather than a git tag, and comments the reference on the pull request. Previews are excluded from the module catalog and expire on their own.'
+        default: false
+        required: false
+        type: boolean
+      preview_expire_days:
+        description: 'Days after which a preview is removed by the registry lifecycle policy. Used only to tell people in the pull request comment when the artifact disappears; the actual expiry is enforced by the lifecycle policy on the registry.'
+        default: 14
+        required: false
+        type: number
       module_name:
         description: 'Module name, used as the ECR repository name within the namespace. Defaults to the calling repository name.'
         default: ''
@@ -81,6 +92,8 @@ on:
 permissions:
   id-token: write
   contents: read
+  # only used when preview is true, to post the reference on the pull request
+  pull-requests: write
 
 jobs:
   publish:
@@ -90,10 +103,10 @@ jobs:
       artifact_uri: ${{ steps.resolve.outputs.artifact_uri }}
       skipped: ${{ steps.check.outputs.skipped }}
     steps:
-      - name: Checkout released version
+      - name: Checkout
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.version }}
+          ref: ${{ inputs.preview && github.event.pull_request.head.sha || inputs.version }}
 
       - name: Configure AWS credentials
         uses: isceco/github-workflows/.github/actions/aws/configure_credentials@v1
@@ -117,14 +130,35 @@ jobs:
           if [ -z "${MODULE_NAME}" ]; then
             MODULE_NAME="${GITHUB_REPOSITORY##*/}"
           fi
+
+          # A preview derives its own tag from the pull request and the head commit. The
+          # registry is immutable, so the commit has to be part of the tag: every push to
+          # the pull request produces a new artifact rather than replacing the previous one.
+          if [ "${{ inputs.preview }}" = "true" ]; then
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+            if [ -z "${HEAD_SHA}" ] || [ -z "${PR_NUMBER}" ]; then
+              echo "::error::preview is true but this is not a pull request event"
+              exit 1
+            fi
+            VERSION="pr-${PR_NUMBER}-${HEAD_SHA:0:7}"
+          else
+            VERSION="${{ inputs.version }}"
+            if [ -z "${VERSION}" ]; then
+              echo "::error::version is required unless preview is true"
+              exit 1
+            fi
+          fi
+
           ECR_REPOSITORY="${{ inputs.ecr_namespace }}/${MODULE_NAME}"
-          ARTIFACT_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:${{ inputs.version }}"
+          ARTIFACT_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:${VERSION}"
           {
             echo "module_name=${MODULE_NAME}"
             echo "ecr_repository=${ECR_REPOSITORY}"
             echo "artifact_uri=${ARTIFACT_URI}"
+            echo "version=${VERSION}"
           } >> "$GITHUB_OUTPUT"
-          echo "Publishing ${MODULE_NAME} ${{ inputs.version }} to ${ECR_REPOSITORY}"
+          echo "Publishing ${MODULE_NAME} ${VERSION} to ${ECR_REPOSITORY}"
 
       - name: Check whether this version already exists
         id: check
@@ -132,7 +166,7 @@ jobs:
           if [ "${{ inputs.skip_if_exists }}" = "true" ] && \
              aws ecr describe-images \
                --repository-name "${{ steps.resolve.outputs.ecr_repository }}" \
-               --image-ids imageTag="${{ inputs.version }}" \
+               --image-ids imageTag="${{ steps.resolve.outputs.version }}" \
                --region "${{ inputs.aws_region }}" > /dev/null 2>&1; then
             echo "skipped=true" >> "$GITHUB_OUTPUT"
             echo "::notice::${{ steps.resolve.outputs.artifact_uri }} already exists - skipping publish"
@@ -155,7 +189,7 @@ jobs:
         env:
           MODULE_NAME: ${{ steps.resolve.outputs.module_name }}
           ECR_REPOSITORY: ${{ steps.resolve.outputs.ecr_repository }}
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.resolve.outputs.version }}
         run: |
           rm -rf /tmp/module-package /tmp/module.zip
           mkdir -p /tmp/module-package
@@ -189,7 +223,7 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ARTIFACT_URI: ${{ steps.resolve.outputs.artifact_uri }}
           MODULE_NAME: ${{ steps.resolve.outputs.module_name }}
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.resolve.outputs.version }}
         run: |
           aws ecr get-login-password --region "${{ inputs.aws_region }}" \
             | oras login "${ECR_REGISTRY}" --username AWS --password-stdin
@@ -211,7 +245,7 @@ jobs:
       # compromised.
       - name: Mint docs dispatch token
         id: dispatch_token
-        if: ${{ inputs.docs_repository != '' && steps.check.outputs.skipped != 'true' }}
+        if: ${{ !inputs.preview && inputs.docs_repository != '' && steps.check.outputs.skipped != 'true' }}
         # the artifact is already published by this point; a documentation refresh that
         # cannot authenticate must not turn a successful publish into a failed one
         continue-on-error: true
@@ -225,13 +259,13 @@ jobs:
       # Best effort: a documentation refresh that does not fire is not a reason to fail a
       # publish that already succeeded, and the catalog refreshes on its own schedule too.
       - name: Notify documentation repository
-        if: ${{ inputs.docs_repository != '' && steps.check.outputs.skipped != 'true' }}
+        if: ${{ !inputs.preview && inputs.docs_repository != '' && steps.check.outputs.skipped != 'true' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.dispatch_token.outputs.token }}
           DOCS_REPO: ${{ inputs.docs_repository }}
           MODULE_NAME: ${{ steps.resolve.outputs.module_name }}
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.resolve.outputs.version }}
         run: |
           if [ -z "${GH_TOKEN:-}" ]; then
             echo "::notice::no dispatch token available, skipping documentation refresh"
@@ -243,6 +277,55 @@ jobs:
             -F "client_payload[version]=${VERSION}" \
             && echo "::notice::requested catalog refresh in ${DOCS_REPO}"
 
+      # Posted as a comment rather than only a job summary: a summary is one click away
+      # from the pull request and in practice nobody looks. The comment is updated in place
+      # on later pushes so the conversation does not fill with one comment per commit.
+      - name: Comment the preview reference
+        if: ${{ inputs.preview && steps.check.outputs.skipped != 'true' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_URI: ${{ steps.resolve.outputs.artifact_uri }}
+          MODULE_NAME: ${{ steps.resolve.outputs.module_name }}
+          VERSION: ${{ steps.resolve.outputs.version }}
+          EXPIRE_DAYS: ${{ inputs.preview_expire_days }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          MARKER="<!-- tofu-module-preview -->"
+          EXPIRES=$(date -u -d "+${EXPIRE_DAYS} days" +"%Y-%m-%d" 2>/dev/null \
+                    || date -u -v "+${EXPIRE_DAYS}d" +"%Y-%m-%d")
+          BODY=$(cat <<EOF
+          ${MARKER}
+          **Module preview published**
+
+          \`\`\`hcl
+          module "${MODULE_NAME//terraform-aws-/}" {
+            source = "oci://${ARTIFACT_URI}"
+          }
+          \`\`\`
+
+          Built from the head of this pull request. Every push publishes a new tag, because
+          the registry is immutable and an existing tag cannot be replaced.
+
+          This artifact is removed around **${EXPIRES}** (${EXPIRE_DAYS} days). Do not
+          reference it from anything permanent.
+          EOF
+          )
+
+          EXISTING=$(gh api "/repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" \
+            --jq ".[] | select(.body | startswith(\"${MARKER}\")) | .id" | head -1)
+
+          if [ -n "${EXISTING}" ]; then
+            gh api -X PATCH "/repos/${GITHUB_REPOSITORY}/issues/comments/${EXISTING}" \
+              -f "body=${BODY}" >/dev/null
+            echo "::notice::updated the preview comment on #${PR}"
+          else
+            gh api -X POST "/repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" \
+              -f "body=${BODY}" >/dev/null
+            echo "::notice::commented the preview reference on #${PR}"
+          fi
+
       - name: Summary
         if: always()
         run: |
@@ -253,5 +336,9 @@ jobs:
               echo "Skipped: version already present in the registry."
             else
               echo "Published \`oci://${{ steps.resolve.outputs.artifact_uri }}\`"
+              if [ "${{ inputs.preview }}" = "true" ]; then
+                echo ""
+                echo "Pull request preview, removed after ${{ inputs.preview_expire_days }} days."
+              fi
             fi
           } >> "$GITHUB_STEP_SUMMARY"
