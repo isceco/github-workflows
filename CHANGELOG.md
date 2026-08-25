@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.2](https://github.com/isceco/github-workflows/compare/v1.12.1...v1.12.2) (2026-08-25)
+
+
+### Bug Fixes
+
+* bump the last two actions off Node 20 ([cc89944](https://github.com/isceco/github-workflows/commit/cc8994475107e8b0fe0b9569e29492d943e069c2))
+
 ## [1.12.1](https://github.com/isceco/github-workflows/compare/v1.12.0...v1.12.1) (2026-08-25)
 
 
