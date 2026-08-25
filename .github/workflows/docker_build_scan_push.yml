@@ -120,7 +120,7 @@ jobs:
       skipped: ${{ steps.build.outputs.skipped }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Configure AWS credentials
         uses: isceco/github-workflows/.github/actions/aws/configure_credentials@v1
@@ -131,10 +131,10 @@ jobs:
 
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
       - name: Build Docker image (local)
         id: build
@@ -182,7 +182,7 @@ jobs:
       - name: Scan with CodeInspector
         id: inspector
         if: ${{ inputs.scan && steps.build.outputs.skipped != 'true' }}
-        uses: aws-actions/vulnerability-scan-github-action-for-amazon-inspector@v1
+        uses: aws-actions/vulnerability-scan-github-action-for-amazon-inspector@baab69e77b34f244adef1f702d0fd69f2b3bc545 # v1
         with:
           artifact_type: 'container'
           artifact_path: '${{ steps.export.outputs.scan_artifact_path }}'
@@ -205,7 +205,7 @@ jobs:
 
       - name: Upload scan reports
         if: ${{ always() && inputs.scan && steps.build.outputs.skipped != 'true' }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: security-scan-reports-${{ steps.build.outputs.image_tag }}
           path: |

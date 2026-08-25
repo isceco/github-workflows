@@ -90,7 +90,7 @@ jobs:
       module_count: ${{ steps.render.outputs.module_count }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Configure AWS credentials
         uses: isceco/github-workflows/.github/actions/aws/configure_credentials@v1
@@ -127,7 +127,7 @@ jobs:
       - name: Mint organization metadata token
         id: metadata_token
         if: inputs.metadata_app_id != ''
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           app-id: ${{ inputs.metadata_app_id }}
           private-key: ${{ secrets.METADATA_APP_PRIVATE_KEY }}

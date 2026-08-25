@@ -186,7 +186,7 @@ jobs:
         id: github_app_token
         if: env.GH_APP_CONFIGURED == 'true'
         continue-on-error: true
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           app-id: ${{ secrets.GH_APP_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
@@ -195,7 +195,7 @@ jobs:
           # repositories: ''
 
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.pull_request.head.ref || github.ref }}
           # Fallback to GITHUB_TOKEN if App token not generated
@@ -203,14 +203,14 @@ jobs:
 
       - name: Setup Terraform
         if: ${{ inputs.use_opentofu == false }}
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_version: ${{ inputs.terraform_version }}
           terraform_wrapper: false
 
       - name: Setup OpenTofu
         if: ${{ inputs.use_opentofu == true }}
-        uses: opentofu/setup-opentofu@v2
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2
         with:
           tofu_version: ${{ inputs.terraform_version }}
           tofu_wrapper: false
@@ -237,12 +237,20 @@ jobs:
           fi
           git diff-index --quiet HEAD || git commit -m "style(terraform fmt): format code" -a
 
+      # Plain git rather than a third-party action. This step pushes commits to the
+      # caller's repository, which makes it the most privileged external dependency in the
+      # pipeline, and it does no more than one push command.
       - name: Push changes
-        uses: ad-m/github-push-action@v1.3.0
-        with:
-          # Fallback to GITHUB_TOKEN if App token not generated
-          github_token: ${{ steps.github_app_token.outputs.token || secrets.GITHUB_TOKEN }}
-          branch: ${{ github.event.pull_request.head.ref || github.ref }}
+        if: steps.fmt_commit.outputs.diff == 'true'
+        env:
+          # the app token when one was minted, otherwise the job's own token
+          TOKEN: ${{ steps.github_app_token.outputs.token || secrets.GITHUB_TOKEN }}
+          # head.ref on a pull request, ref_name on a push; both are bare branch names
+          BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          git push "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "HEAD:refs/heads/${BRANCH}"
 
   terraform-docs:
     needs:
@@ -266,7 +274,7 @@ jobs:
         id: github_app_token
         if: env.GH_APP_CONFIGURED == 'true'
         continue-on-error: true
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           app-id: ${{ secrets.GH_APP_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
@@ -275,7 +283,7 @@ jobs:
           # repositories: ''
 
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.pull_request.head.ref || github.ref }}
           # Fallback to GITHUB_TOKEN if App token not generated
@@ -283,7 +291,7 @@ jobs:
 
       - name: Run Terraform Docs
         id: docs
-        uses: terraform-docs/gh-actions@v1.4.1
+        uses: terraform-docs/gh-actions@6de6da0cefcc6b4b7a5cbea4d79d97060733093c # v1.4.1
         with:
           working-dir: ${{ inputs.terraform_working_directory }}
           output-file: README.md
@@ -322,7 +330,7 @@ jobs:
         id: github_app_token
         if: env.GH_APP_CONFIGURED == 'true'
         continue-on-error: true
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           app-id: ${{ secrets.GH_APP_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
@@ -331,13 +339,13 @@ jobs:
           # repositories: ''
 
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.pull_request.head.ref || github.ref }}
           token: ${{ steps.github_app_token.outputs.token || secrets.GITHUB_TOKEN }}
 
       - name: Get TFLint Config
-        uses: terraform-linters/tflint-load-config-action@v3
+        uses: terraform-linters/tflint-load-config-action@32d9f74138340b95873e956fbdfc390db819bff1 # v3
         if: ${{ inputs.tflint_repo_config_path != '' }}
         with:
           source-repo: ${{ inputs.tflint_repo }}
@@ -347,7 +355,7 @@ jobs:
           token: ${{ steps.github_app_token.outputs.token || secrets.GITHUB_TOKEN }}
 
       - name: Run TFLint
-        uses: reviewdog/action-tflint@v1
+        uses: reviewdog/action-tflint@54a5e5aed57dcfbb4662ec548de876df33d6288d # v1
         id: lint
         with:
           github_token: ${{ steps.github_app_token.outputs.token || secrets.GITHUB_TOKEN }}
@@ -386,7 +394,7 @@ jobs:
         id: github_app_token
         if: env.GH_APP_CONFIGURED == 'true'
         continue-on-error: true
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           app-id: ${{ secrets.GH_APP_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
@@ -395,13 +403,13 @@ jobs:
           # repositories: ''
 
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.pull_request.head.ref || github.ref }}
           token: ${{ steps.github_app_token.outputs.token || secrets.GITHUB_TOKEN }}
 
       - name: Run Trivy
-        uses: reviewdog/action-trivy@v1
+        uses: reviewdog/action-trivy@102f1eda529aaab3502cbef08bbb0050ee0b6b60 # v1
         id: security
         with:
           github_token: ${{ steps.github_app_token.outputs.token || secrets.GITHUB_TOKEN }}
@@ -511,7 +519,7 @@ jobs:
       - name: Get Private Module Access Token
         if: ${{ inputs.terraform_modules_auth == 'github-app' }}
         id: private_module_access
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           app-id: ${{ secrets.TERRAFORM_MODULES_APP_ID }}
           private-key: ${{ secrets.TERRAFORM_MODULES_APP_PRIVATE_KEY }}
@@ -524,7 +532,7 @@ jobs:
           git config --global url."https://x-access-token:${{ steps.private_module_access.outputs.token }}@github.com/".insteadOf "https://github.com/"
 
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.pull_request.head.ref || github.ref }}
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -533,7 +541,7 @@ jobs:
 
       - name: Setup Terraform
         if: ${{ inputs.use_opentofu == false }}
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_version: ${{ inputs.terraform_version }}
           terraform_wrapper: false
@@ -542,7 +550,7 @@ jobs:
 
       - name: Setup OpenTofu
         if: ${{ inputs.use_opentofu == true }}
-        uses: opentofu/setup-opentofu@v2
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2
         with:
           tofu_version: ${{ inputs.terraform_version }}
           tofu_wrapper: false
