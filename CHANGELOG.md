@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.10.0](https://github.com/isceco/github-workflows/compare/v1.9.0...v1.10.0) (2026-08-25)
+
+
+### Features
+
+* add a reusable conventional pull request check ([fe2d13a](https://github.com/isceco/github-workflows/commit/fe2d13ac766ad5d3a3273eaea9c7b94f1009b848))
+
+
+### Bug Fixes
+
+* comment a usable module source, not the push reference ([054d1fc](https://github.com/isceco/github-workflows/commit/054d1fcd7a532441d136c723263ac236593d63d9))
+
 ## [1.9.0](https://github.com/isceco/github-workflows/compare/v1.8.0...v1.9.0) (2026-08-25)
 
 
