@@ -122,6 +122,11 @@ on:
         default: 'CKV_TF_1,CKV_TF_2'
         required: false
         type: string
+      checkov_soft_fail:
+        description: 'Report Checkov findings without failing the job. The findings still appear in the annotations and the run summary. Useful while an existing codebase is brought up to the policy set, so the scan is visible before it is enforced.'
+        default: false
+        required: false
+        type: boolean
       checkov_enabled:
         description: 'Enable or disable Checkov scan'
         default: 'true'
@@ -385,7 +390,7 @@ jobs:
           check: ${{ inputs.checkov_check }} # optional: run only a specific check_id. can be comma separated list
           skip_check: ${{ inputs.checkov_skip_check }} # optional: skip a specific check_id. can be comma separated list
           quiet: true # optional: display only failed checks
-          soft_fail: false # optional: do not return an error code if there are failed checks
+          soft_fail: ${{ inputs.checkov_soft_fail }} # report without failing when true
           framework: terraform # optional: run only on a specific infrastructure {cloudformation,terraform,kubernetes,all}
           download_external_modules: false # optional: download external terraform modules from public git repositories and terraform registry
           log_level: ${{ inputs.checkov_log_level || 'WARNING' }} # optional: set log level {CRITICAL, ERROR, WARNING, INFO, DEBUG}
