@@ -393,16 +393,31 @@ jobs:
         run: |
           set -uo pipefail
           ARGS=()
-          [ -f "${TFLINT_CONFIG}" ] && ARGS+=("--config=${TFLINT_CONFIG}")
+          if [ -f "${TFLINT_CONFIG}" ]; then
+            ARGS+=("--config=${TFLINT_CONFIG}")
+          fi
 
+          # GitHub runs step scripts under "bash -e", so a non-zero exit here would abort
+          # the step before the exit code could be recorded. tflint returns 2 when it finds
+          # something, which is an expected outcome rather than a failure of this step, so
+          # error handling is switched off for exactly the two calls whose codes are read.
+          set +e
           tflint --init "${ARGS[@]}"
+          INIT_CODE=$?
 
           # --minimum-failure-severity ties the exit code to error severity while the json
           # output still carries every diagnostic, so warnings stay visible in the summary
           # without deciding the outcome.
           tflint --format=json --minimum-failure-severity=error "${ARGS[@]}" \
             > "${RUNNER_TEMP}/tflint.json"
-          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          RUN_CODE=$?
+          set -e
+
+          if [ "${INIT_CODE}" -ne 0 ]; then
+            echo "::error::tflint --init failed with exit code ${INIT_CODE}"
+            exit 1
+          fi
+          echo "exit_code=${RUN_CODE}" >> "$GITHUB_OUTPUT"
 
       # Reporting and the gate live here rather than in the step above, so that the summary
       # is written even when tflint found something that fails the job.
@@ -416,6 +431,20 @@ jobs:
           set -uo pipefail
           REPORT="${RUNNER_TEMP}/tflint.json"
           : > "${ANNOTATIONS}"
+
+          # An empty value means the step above aborted before recording anything, which is
+          # a failure of the pipeline rather than a clean run. Treating it as "no findings"
+          # would turn a broken lint step into a green check.
+          if [ -z "${TFLINT_EXIT}" ]; then
+            {
+              echo "## TFLint"
+              echo ""
+              echo "TFLint did not report an exit code, so the run cannot be trusted."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::tflint did not record an exit code"
+            exit 1
+          fi
+
           if [ ! -s "${REPORT}" ]; then
             {
               echo "## TFLint"
@@ -423,7 +452,10 @@ jobs:
               echo "No output was produced, so there is nothing to report."
             } >> "$GITHUB_STEP_SUMMARY"
             # exit code 1 means tflint itself failed rather than finding issues
-            [ "${TFLINT_EXIT}" = "1" ] && exit 1
+            if [ "${TFLINT_EXIT}" = "1" ]; then
+              echo "::error::tflint failed to run"
+              exit 1
+            fi
             exit 0
           fi
           python3 - "${REPORT}" >> "$GITHUB_STEP_SUMMARY" <<'PYEOF'
@@ -479,6 +511,11 @@ jobs:
                            f"line={start.get('line', 1)}::"
                            f"{i.get('rule', {}).get('name', 'tflint')}: {msg}\n")
           PYEOF
+          PY_CODE=$?
+          if [ "${PY_CODE}" -ne 0 ]; then
+            echo "::error::could not read the tflint report (parser exit ${PY_CODE})"
+            exit 1
+          fi
 
           cat "${ANNOTATIONS}"
 
@@ -589,10 +626,18 @@ jobs:
               for m in result.get("Misconfigurations") or []:
                   findings.append((result.get("Target", "?"), m))
 
+          # Written unconditionally, including on the no-findings path. The shell below
+          # reads this marker to decide the outcome, and an absent marker is
+          # indistinguishable from a parser that died before writing one.
+          def write_marker(count):
+              with open(os.environ["ANNOTATIONS"], "a") as fh:
+                  fh.write(f"#blocking={count}\n")
+
           print("## Trivy")
           print()
           if not findings:
               print("No findings.")
+              write_marker(0)
               raise SystemExit
 
           rank = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]
@@ -630,12 +675,24 @@ jobs:
                   msg = (m.get("Message") or m.get("Title") or "").replace("\n", " ")
                   fh.write(f"::{kind} file={target},line={line}::"
                            f"{m.get('AVDID') or m.get('ID')}: {msg}\n")
-              fh.write(f"#blocking={len(blocking)}\n")
+          write_marker(len(blocking))
           PYEOF
+          PY_CODE=$?
+          if [ "${PY_CODE}" -ne 0 ]; then
+            echo "::error::could not read the Trivy report (parser exit ${PY_CODE})"
+            exit 1
+          fi
+
+          # grep exits non-zero when it matches nothing, and this script runs under
+          # "bash -e" with pipefail, where that would abort the step with no output and no
+          # explanation. The reporting plumbing must never be what decides the outcome.
+          BLOCKING=$(grep '^#blocking=' "${ANNOTATIONS}" | cut -d= -f2 || true)
+          if [ -z "${BLOCKING}" ]; then
+            echo "::error::the Trivy report produced no result marker"
+            exit 1
+          fi
 
           grep -v '^#blocking=' "${ANNOTATIONS}" || true
-          BLOCKING=$(grep '^#blocking=' "${ANNOTATIONS}" | cut -d= -f2)
-          BLOCKING="${BLOCKING:-0}"
 
           if [ "${BLOCKING}" -gt 0 ] && [ "${SOFT_FAIL}" != "true" ]; then
             echo "::error::Trivy reported ${BLOCKING} finding(s) at ${FAIL_SEVERITY}"
