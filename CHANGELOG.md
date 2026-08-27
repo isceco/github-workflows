@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.14.1](https://github.com/isceco/github-workflows/compare/v1.14.0...v1.14.1) (2026-08-27)
+
+
+### Bug Fixes
+
+* stop the reporting steps from deciding the build outcome ([#23](https://github.com/isceco/github-workflows/issues/23)) ([b5e6996](https://github.com/isceco/github-workflows/commit/b5e69966a59730e4b62ff24a2ddfb1754ac499f9))
+
 ## [1.14.0](https://github.com/isceco/github-workflows/compare/v1.13.1...v1.14.0) (2026-08-27)
 
 
