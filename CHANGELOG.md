@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.14.0](https://github.com/isceco/github-workflows/compare/v1.13.1...v1.14.0) (2026-08-27)
+
+
+### Features
+
+* gate lint and security on severity instead of finding count ([#21](https://github.com/isceco/github-workflows/issues/21)) ([09afec3](https://github.com/isceco/github-workflows/commit/09afec31d915b6797e5a177ea3df7baccb5668a0))
+
 ## [1.13.1](https://github.com/isceco/github-workflows/compare/v1.13.0...v1.13.1) (2026-08-25)
 
 
