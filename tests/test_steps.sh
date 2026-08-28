@@ -26,6 +26,7 @@ out = ARGV[1]
 {
   "terraform-lint"     => {"Run TFLint" => "step_tflint_run.sh", "TFLint findings" => "step_tflint.sh"},
   "terraform-security" => {"Trivy findings" => "step_trivy.sh"},
+  "terraform-test"     => {"Look for tests" => "step_discover.sh"},
 }.each do |job, steps|
   steps.each do |name, file|
     s = wf["jobs"][job]["steps"].find { |x| x["name"] == name } or abort "missing step: #{name}"
@@ -112,6 +113,42 @@ export TFLINT_EXIT=0
 run_case "exit 0: report malformed" step_tflint.sh 1 tflint_malformed
 export TFLINT_EXIT=""
 run_case "exit absent: run step aborted" step_tflint.sh 1 tflint_warn
+
+# Test discovery decides whether the test job runs or reports skipped. Most repositories
+# have no tests yet, so the no-tests path is the one that must not fail.
+discover_case() {
+  local desc="$1" want_found="$2" make_tests="$3"
+  local dir
+  dir=$(mktemp -d "${TMPDIR:-/tmp}/wfdisc.XXXXXX")
+  printf 'resource "null_resource" "x" {}\n' > "$dir/main.tf"
+  mkdir -p "$dir/.terraform"
+  # a leftover test file inside .terraform must never be counted
+  printf 'run "decoy" {}\n' > "$dir/.terraform/decoy.tftest.hcl"
+  if [ "$make_tests" = "yes" ]; then
+    mkdir -p "$dir/tests"
+    printf 'run "real" {\n  command = plan\n}\n' > "$dir/tests/main.tftest.hcl"
+  fi
+
+  local out got found
+  out=$(cd "$dir" && GITHUB_OUTPUT="$dir/output.txt" bash -e "$BUILD/step_discover.sh" 2>&1)
+  got=$?
+  found=$(grep '^found=' "$dir/output.txt" 2>/dev/null | cut -d= -f2)
+
+  if [ "$got" -eq 0 ] && [ "$found" = "$want_found" ]; then
+    printf "  ok    %-46s found=%s\n" "$desc" "$found"
+    PASS=$((PASS + 1))
+  else
+    printf "  FAIL  %-46s exit=%s found=%s want=%s\n" "$desc" "$got" "${found:-<none>}" "$want_found"
+    printf "        %s\n" "$out"
+    FAIL=$((FAIL + 1))
+  fi
+  rm -rf "$dir"
+}
+
+echo ""
+echo "Test discovery"
+discover_case "repository with tests" "true" yes
+discover_case "repository without tests" "false" no
 
 echo ""
 echo "passed: $PASS   failed: $FAIL"
