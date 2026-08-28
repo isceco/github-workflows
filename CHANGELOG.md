@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.0](https://github.com/isceco/github-workflows/compare/v1.14.2...v1.15.0) (2026-08-28)
+
+
+### Features
+
+* run tofu test when a repository has tests ([#27](https://github.com/isceco/github-workflows/issues/27)) ([e33459b](https://github.com/isceco/github-workflows/commit/e33459b68785a1ad3e0e85e36d7744b667cdf13c))
+
 ## [1.14.2](https://github.com/isceco/github-workflows/compare/v1.14.1...v1.14.2) (2026-08-28)
 
 
