@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.14.2](https://github.com/isceco/github-workflows/compare/v1.14.1...v1.14.2) (2026-08-28)
+
+
+### Bug Fixes
+
+* render module docs as a table so an OCI source reads correctly ([#25](https://github.com/isceco/github-workflows/issues/25)) ([cdd5aee](https://github.com/isceco/github-workflows/commit/cdd5aee3177c0f61189b64cc4659c6b362dff3be))
+
 ## [1.14.1](https://github.com/isceco/github-workflows/compare/v1.14.0...v1.14.1) (2026-08-27)
 
 
