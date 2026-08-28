@@ -82,6 +82,11 @@ on:
         default: 'latest'
         required: false
         type: string
+      terraform_docs_format:
+        description: 'terraform-docs output format, "markdown table" or "markdown document". Table is the better fit for modules sourced over OCI: terraform-docs derives a module version only from a "?ref=" source, so an OCI "?tag=" source leaves the version empty. In document format that renders as a dangling "Version:" heading with nothing after it; in a table it is simply an empty cell, and the version is still readable at the end of the source string.'
+        default: 'markdown table'
+        required: false
+        type: string
       trivy_version:
         description: 'Trivy version to use in github action'
         default: 'v0.69.3'
@@ -306,7 +311,7 @@ jobs:
           working-dir: ${{ inputs.terraform_working_directory }}
           output-file: README.md
           output-method: inject
-          output-format: markdown document
+          output-format: ${{ inputs.terraform_docs_format }}
           args: --sort-by required --anchor=false
           git-push: true
           git-push-user-name: ${{ inputs.commit_user }}
