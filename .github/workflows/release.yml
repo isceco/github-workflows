@@ -29,10 +29,40 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     runs-on: ${{ inputs.runs-on }}
     steps:
+      # release-please-action picks its mode from whether release-type is set:
+      #
+      #   if (inputs.releaseType) { Manifest.fromConfig(...) }   // release-type wins
+      #   else                    { Manifest.fromManifest(configFile, manifestFile) }
+      #
+      # so passing a release-type makes it ignore release-please-config.json completely.
+      # A repository that ships that file wants what is in it, which is the only way to
+      # configure extra-files and therefore the only way to keep a version in the README
+      # current.
+      #
+      # Detecting the file here rather than asking the caller to pass an empty release-type
+      # is deliberate. The caller's release.yml is generated from a shared template and
+      # rewritten on every sweep, so a per repository edit to it does not survive: one such
+      # edit was reverted by the next sweep, and the symptom was a release that quietly
+      # stopped updating the README while still looking healthy.
+      - name: Choose the release-please mode
+        id: mode
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FALLBACK: ${{ inputs.release-type }}
+        run: |
+          set -uo pipefail
+          if gh api "/repos/${GITHUB_REPOSITORY}/contents/release-please-config.json?ref=${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "release_type=" >> "$GITHUB_OUTPUT"
+            echo "manifest mode: release-please-config.json is present, its contents decide the release"
+          else
+            echo "release_type=${FALLBACK}" >> "$GITHUB_OUTPUT"
+            echo "simple mode: no release-please-config.json, using release-type=${FALLBACK}"
+          fi
+
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
         id: release
         with:
-          release-type: ${{ inputs.release-type }}
+          release-type: ${{ steps.mode.outputs.release_type }}
           token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: "tag major and minor versions"
