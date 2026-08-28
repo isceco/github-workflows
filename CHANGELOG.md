@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.1](https://github.com/isceco/github-workflows/compare/v1.15.0...v1.15.1) (2026-08-28)
+
+
+### Bug Fixes
+
+* honour release-please-config.json when a repository ships one ([#29](https://github.com/isceco/github-workflows/issues/29)) ([f50218b](https://github.com/isceco/github-workflows/commit/f50218b0452910bad9f584afc0bc331a06f7d2be))
+
 ## [1.15.0](https://github.com/isceco/github-workflows/compare/v1.14.2...v1.15.0) (2026-08-28)
 
 
