@@ -26,7 +26,8 @@ out = ARGV[1]
 {
   "terraform-lint"     => {"Run TFLint" => "step_tflint_run.sh", "TFLint findings" => "step_tflint.sh"},
   "terraform-security" => {"Trivy findings" => "step_trivy.sh"},
-  "terraform-test"     => {"Look for tests" => "step_discover.sh"},
+  "terraform-test"     => {"Look for tests" => "step_discover.sh",
+                           "Setup ECR Authentication for OCI Modules" => "step_ecr_auth.sh"},
 }.each do |job, steps|
   steps.each do |name, file|
     s = wf["jobs"][job]["steps"].find { |x| x["name"] == name } or abort "missing step: #{name}"
@@ -149,6 +150,69 @@ echo ""
 echo "Test discovery"
 discover_case "repository with tests" "true" yes
 discover_case "repository without tests" "false" no
+
+# The ECR step writes the docker config that OpenTofu reads to pull OCI module sources. It
+# runs before any test and, unlike the reporting steps, is allowed to fail the job: a runner
+# that cannot authenticate cannot resolve the sources, and continuing would only produce a
+# confusing "module not found" later.
+#
+# What is checked is that the file it writes is valid json with an entry per registry. The
+# earlier version of this step appended strings to build that json, which is fine until a
+# registry id arrives with unexpected content or the list has a trailing separator, and a
+# malformed docker config does not announce itself: tofu simply fails to pull, as if
+# unauthenticated.
+ecr_case() {
+  local desc="$1" registry_ids="$2" want_exit="$3" want_count="$4"
+  local dir
+  dir=$(mktemp -d "${TMPDIR:-/tmp}/wfecr.XXXXXX")
+
+  # stub aws so no credentials or network are needed
+  mkdir -p "$dir/bin"
+  cat > "$dir/bin/aws" <<'STUB'
+#!/bin/bash
+[ "$1" = "ecr" ] && [ "$2" = "get-login-password" ] && { echo "fake-ecr-token"; exit 0; }
+exit 1
+STUB
+  chmod +x "$dir/bin/aws"
+
+  local out got count
+  out=$(cd "$dir" && PATH="$dir/bin:$PATH" HOME="$dir" \
+        ECR_REGISTRY_IDS="$registry_ids" AWS_DEFAULT_REGION_INPUT="eu-central-2" \
+        bash -e "$BUILD/step_ecr_auth.sh" 2>&1)
+  got=$?
+
+  count=$(python3 -c "
+import json,sys
+try:
+    d=json.load(open('$dir/.docker/config.json'))
+except Exception as e:
+    print('INVALID'); sys.exit()
+print(len(d.get('auths',{})))
+" 2>/dev/null)
+
+  if [ "$got" = "$want_exit" ] && [ "$count" = "$want_count" ]; then
+    printf "  ok    %-46s exit=%s auths=%s\n" "$desc" "$got" "$count"
+    PASS=$((PASS + 1))
+  else
+    printf "  FAIL  %-46s exit=%s want=%s auths=%s want=%s\n" \
+      "$desc" "$got" "$want_exit" "${count:-<none>}" "$want_count"
+    printf "        %s\n" "$out"
+    FAIL=$((FAIL + 1))
+  fi
+  rm -rf "$dir"
+}
+
+echo ""
+echo "ECR authentication for OCI modules"
+ecr_case "single registry" "031244176730" 0 1
+ecr_case "several registries" "031244176730,123456789012" 0 2
+ecr_case "whitespace around ids" " 031244176730 , 123456789012 " 0 2
+# An empty element is easy to leave behind when a caller templates the list. Only the leading
+# and embedded forms are worth asserting: "read -ra" with a non-whitespace IFS keeps a leading
+# and an embedded empty field but discards a trailing one, so "a," needs no guard and testing
+# it would pass whether or not the guard exists.
+ecr_case "leading separator produces no empty entry" ",031244176730" 0 1
+ecr_case "embedded separator produces no empty entry" "031244176730,,123456789012" 0 2
 
 echo ""
 echo "passed: $PASS   failed: $FAIL"
