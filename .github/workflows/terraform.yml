@@ -167,6 +167,11 @@ on:
         default: ''
         required: false
         type: string
+      aws_oidc_role_from_secret:
+        description: 'Set true when the role ARN is supplied through the AWS_OIDC_ROLE_ARN secret instead of the aws_oidc_role_arn input. A secret cannot be tested in a step condition, so without this the AWS steps have no way to know a role was given and skip themselves.'
+        default: false
+        required: false
+        type: boolean
     secrets:
       # GitHub App credentials to use instead of default GITHUB_TOKEN to avoid not triggering workflow runs on commit
       GH_APP_ID:
@@ -190,6 +195,10 @@ on:
       #
       # Where both are supplied the secret wins, on the grounds that the more specific of the two
       # is the one the caller went out of its way to provide.
+      #
+      # A caller using this secret must also set 'aws_oidc_role_from_secret', because the steps
+      # that consume it cannot detect it on their own. See the comment on the credentials step in
+      # terraform-test for what was tried first and why it does not work.
       AWS_OIDC_ROLE_ARN:
         required: false
 
@@ -572,9 +581,6 @@ jobs:
 
     env:
       GH_APP_CONFIGURED: ${{ secrets.GH_APP_ID != '' && secrets.GH_APP_PRIVATE_KEY != '' }}
-      # surfaced for the same reason as GH_APP_CONFIGURED above: the secrets context is not
-      # available in a step level 'if', but job level 'env' can read it, and 'if' can read env.
-      AWS_ROLE_ARN: ${{ secrets.AWS_OIDC_ROLE_ARN || inputs.aws_oidc_role_arn }}
     steps:
       - name: Get Github Access Token
         id: github_app_token
@@ -627,17 +633,24 @@ jobs:
       #
       # Both steps are copies of what terraform-execution already does. They stay skipped unless
       # a caller supplies a role, so repositories with no AWS involvement are unaffected.
+      #
+      # The condition deliberately tests inputs only, never the secret. A first attempt resolved
+      # 'secrets.AWS_OIDC_ROLE_ARN || inputs.aws_oidc_role_arn' into a job level env var and
+      # tested that, which is the workaround GH_APP_CONFIGURED uses a few lines above. It does
+      # not work: with the ARN passed only as a secret both steps skipped, and passing the same
+      # value through the input as well made them run, so the value simply is not there to be
+      # read. The secret is still used, in 'with', where the secrets context is available.
       - name: Configure AWS credentials
-        if: ${{ steps.discover.outputs.found == 'true' && env.AWS_ROLE_ARN != '' }}
+        if: ${{ steps.discover.outputs.found == 'true' && (inputs.aws_oidc_role_arn != '' || inputs.aws_oidc_role_from_secret) }}
         uses: isceco/github-workflows/.github/actions/aws/configure_credentials@v1
         with:
-          AWS_ROLE_ARN_TO_ASSUME: ${{ env.AWS_ROLE_ARN }}
+          AWS_ROLE_ARN_TO_ASSUME: ${{ secrets.AWS_OIDC_ROLE_ARN || inputs.aws_oidc_role_arn }}
           AWS_REGION: ${{ inputs.aws_default_region }}
           AWS_SESSION_NAME: GitHubActions-${{ github.run_id }}
           AWS_SESSION_DURATION: ${{ inputs.aws_oidc_role_duration_seconds }}
 
       - name: Setup ECR Authentication for OCI Modules
-        if: ${{ steps.discover.outputs.found == 'true' && inputs.enable_ecr_oci_modules && inputs.ecr_oci_registry_ids != '' && env.AWS_ROLE_ARN != '' }}
+        if: ${{ steps.discover.outputs.found == 'true' && inputs.enable_ecr_oci_modules && inputs.ecr_oci_registry_ids != '' }}
         env:
           ECR_REGISTRY_IDS: ${{ inputs.ecr_oci_registry_ids }}
           AWS_DEFAULT_REGION_INPUT: ${{ inputs.aws_default_region }}
@@ -962,12 +975,6 @@ jobs:
       execution_status: ${{ steps.plan.outcome || steps.apply.outcome }}
       execution_type: ${{ steps.set_execution_type.outputs.type }}
 
-    env:
-      # see the AWS_OIDC_ROLE_ARN secret declaration for why a caller may have to send the role
-      # ARN as a secret rather than as the input, and see terraform-test for why it is surfaced
-      # into env rather than read directly in a step level 'if'
-      AWS_ROLE_ARN: ${{ secrets.AWS_OIDC_ROLE_ARN || inputs.aws_oidc_role_arn }}
-
     steps:
       - name: Get Private Module Access Token
         if: ${{ inputs.terraform_modules_auth == 'github-app' }}
@@ -1025,16 +1032,16 @@ jobs:
           fi
 
       - name: "Configure AWS credentials"
-        if: ${{ env.AWS_ROLE_ARN != '' }}
+        if: ${{ inputs.aws_oidc_role_arn != '' || inputs.aws_oidc_role_from_secret }}
         uses: isceco/github-workflows/.github/actions/aws/configure_credentials@v1
         with:
-          AWS_ROLE_ARN_TO_ASSUME: ${{ env.AWS_ROLE_ARN }}
+          AWS_ROLE_ARN_TO_ASSUME: ${{ secrets.AWS_OIDC_ROLE_ARN || inputs.aws_oidc_role_arn }}
           AWS_REGION: ${{ inputs.aws_default_region }}
           AWS_SESSION_NAME: GitHubActions-${{ github.run_id }}
           AWS_SESSION_DURATION: ${{ inputs.aws_oidc_role_duration_seconds }}
 
       - name: Setup ECR Authentication for OCI Modules
-        if: ${{ inputs.enable_ecr_oci_modules && inputs.ecr_oci_registry_ids != '' && env.AWS_ROLE_ARN != '' }}
+        if: ${{ inputs.enable_ecr_oci_modules && inputs.ecr_oci_registry_ids != '' }}
         run: |
           echo "Setting up ECR authentication for OpenTofu/Terraform OCI modules..."
 
