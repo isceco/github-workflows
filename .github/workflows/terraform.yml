@@ -181,6 +181,17 @@ on:
       # (optional) Token for accessing private Terraform module registry (requires 'terraform_registry_hostname' to be set to a private registry)
       TERRAFORM_REGISTRY_TOKEN:
         required: false
+      # (optional) Role ARN to assume via OIDC, as an alternative to the 'aws_oidc_role_arn' input.
+      #
+      # Both exist because a caller cannot always use the input. The contexts allowed in
+      # 'jobs.<job_id>.with.<with_id>' are github, needs, strategy, matrix, inputs and vars, so a
+      # caller holding the ARN in an organisation secret has no way to pass it there and must send
+      # it here instead. A caller holding it in an organisation variable can keep using the input.
+      #
+      # Where both are supplied the secret wins, on the grounds that the more specific of the two
+      # is the one the caller went out of its way to provide.
+      AWS_OIDC_ROLE_ARN:
+        required: false
 
 # Ensures that only one workflow runs at a time
 concurrency: ${{ inputs.concurrency_group }}
@@ -561,6 +572,9 @@ jobs:
 
     env:
       GH_APP_CONFIGURED: ${{ secrets.GH_APP_ID != '' && secrets.GH_APP_PRIVATE_KEY != '' }}
+      # surfaced for the same reason as GH_APP_CONFIGURED above: the secrets context is not
+      # available in a step level 'if', but job level 'env' can read it, and 'if' can read env.
+      AWS_ROLE_ARN: ${{ secrets.AWS_OIDC_ROLE_ARN || inputs.aws_oidc_role_arn }}
     steps:
       - name: Get Github Access Token
         id: github_app_token
@@ -605,6 +619,53 @@ jobs:
         with:
           tofu_version: ${{ inputs.terraform_version }}
           tofu_wrapper: false
+
+      # A module whose sources are OCI artefacts cannot be tested without these two steps. The
+      # test run does "init -backend=false", which still resolves and downloads every module
+      # source, so an unauthenticated runner fails before a single test executes. That is what
+      # terraform-aws-rds-module hit once it started sourcing a nested module from ECR.
+      #
+      # Both steps are copies of what terraform-execution already does. They stay skipped unless
+      # a caller supplies a role, so repositories with no AWS involvement are unaffected.
+      - name: Configure AWS credentials
+        if: ${{ steps.discover.outputs.found == 'true' && env.AWS_ROLE_ARN != '' }}
+        uses: isceco/github-workflows/.github/actions/aws/configure_credentials@v1
+        with:
+          AWS_ROLE_ARN_TO_ASSUME: ${{ env.AWS_ROLE_ARN }}
+          AWS_REGION: ${{ inputs.aws_default_region }}
+          AWS_SESSION_NAME: GitHubActions-${{ github.run_id }}
+          AWS_SESSION_DURATION: ${{ inputs.aws_oidc_role_duration_seconds }}
+
+      - name: Setup ECR Authentication for OCI Modules
+        if: ${{ steps.discover.outputs.found == 'true' && inputs.enable_ecr_oci_modules && inputs.ecr_oci_registry_ids != '' && env.AWS_ROLE_ARN != '' }}
+        env:
+          ECR_REGISTRY_IDS: ${{ inputs.ecr_oci_registry_ids }}
+          AWS_DEFAULT_REGION_INPUT: ${{ inputs.aws_default_region }}
+        run: |
+          set -euo pipefail
+          echo "Setting up ECR authentication for OpenTofu/Terraform OCI modules..."
+
+          mkdir -p ~/.docker
+
+          # built with jq rather than by appending strings, so a registry id containing anything
+          # unexpected cannot produce a config file that is silently invalid json
+          AUTHS='{}'
+          IFS=',' read -ra REGISTRY_IDS <<< "${ECR_REGISTRY_IDS}"
+          for registry_id in "${REGISTRY_IDS[@]}"; do
+            registry_id="$(echo "${registry_id}" | xargs)"
+            [ -n "${registry_id}" ] || continue
+
+            echo "Configuring authentication for ECR registry: ${registry_id}"
+            ECR_TOKEN="$(aws ecr get-login-password --region "${AWS_DEFAULT_REGION_INPUT}")"
+            ECR_REGISTRY="${registry_id}.dkr.ecr.${AWS_DEFAULT_REGION_INPUT}.amazonaws.com"
+            AUTH="$(printf 'AWS:%s' "${ECR_TOKEN}" | base64 -w 0)"
+
+            AUTHS="$(jq -c --arg reg "${ECR_REGISTRY}" --arg auth "${AUTH}" \
+              '.[$reg] = {auth: $auth}' <<< "${AUTHS}")"
+          done
+
+          jq -n --argjson auths "${AUTHS}" '{auths: $auths}' > ~/.docker/config.json
+          echo "ECR authentication configured successfully for OCI modules"
 
       - name: Run tests
         id: test
@@ -901,6 +962,12 @@ jobs:
       execution_status: ${{ steps.plan.outcome || steps.apply.outcome }}
       execution_type: ${{ steps.set_execution_type.outputs.type }}
 
+    env:
+      # see the AWS_OIDC_ROLE_ARN secret declaration for why a caller may have to send the role
+      # ARN as a secret rather than as the input, and see terraform-test for why it is surfaced
+      # into env rather than read directly in a step level 'if'
+      AWS_ROLE_ARN: ${{ secrets.AWS_OIDC_ROLE_ARN || inputs.aws_oidc_role_arn }}
+
     steps:
       - name: Get Private Module Access Token
         if: ${{ inputs.terraform_modules_auth == 'github-app' }}
@@ -958,16 +1025,16 @@ jobs:
           fi
 
       - name: "Configure AWS credentials"
-        if: ${{ inputs.aws_oidc_role_arn != '' }}
+        if: ${{ env.AWS_ROLE_ARN != '' }}
         uses: isceco/github-workflows/.github/actions/aws/configure_credentials@v1
         with:
-          AWS_ROLE_ARN_TO_ASSUME: ${{ inputs.aws_oidc_role_arn }}
+          AWS_ROLE_ARN_TO_ASSUME: ${{ env.AWS_ROLE_ARN }}
           AWS_REGION: ${{ inputs.aws_default_region }}
           AWS_SESSION_NAME: GitHubActions-${{ github.run_id }}
           AWS_SESSION_DURATION: ${{ inputs.aws_oidc_role_duration_seconds }}
 
       - name: Setup ECR Authentication for OCI Modules
-        if: ${{ inputs.enable_ecr_oci_modules && inputs.ecr_oci_registry_ids != '' && inputs.aws_oidc_role_arn != '' }}
+        if: ${{ inputs.enable_ecr_oci_modules && inputs.ecr_oci_registry_ids != '' && env.AWS_ROLE_ARN != '' }}
         run: |
           echo "Setting up ECR authentication for OpenTofu/Terraform OCI modules..."
 
