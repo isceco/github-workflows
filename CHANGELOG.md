@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.16.2](https://github.com/isceco/github-workflows/compare/v1.16.1...v1.16.2) (2026-09-01)
+
+
+### Bug Fixes
+
+* do not test the oidc role secret in a step condition ([#35](https://github.com/isceco/github-workflows/issues/35)) ([f1a0f16](https://github.com/isceco/github-workflows/commit/f1a0f16b775ab9c729c35d96e018885a72997a82))
+
 ## [1.16.1](https://github.com/isceco/github-workflows/compare/v1.16.0...v1.16.1) (2026-09-01)
 
 
