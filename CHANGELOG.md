@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.16.1](https://github.com/isceco/github-workflows/compare/v1.16.0...v1.16.1) (2026-09-01)
+
+
+### Bug Fixes
+
+* bump bridgecrewio/checkov-action ([58f964d](https://github.com/isceco/github-workflows/commit/58f964de9a0ed0b359d074f39f1c6e16ee1f3d41))
+* bump bridgecrewio/checkov-action from 12.3119.0 to 12.3121.0 in the actions-minor-and-patch group ([#31](https://github.com/isceco/github-workflows/issues/31)) ([58f964d](https://github.com/isceco/github-workflows/commit/58f964de9a0ed0b359d074f39f1c6e16ee1f3d41))
+
 ## [1.16.0](https://github.com/isceco/github-workflows/compare/v1.15.1...v1.16.0) (2026-09-01)
 
 
