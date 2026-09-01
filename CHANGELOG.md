@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.16.0](https://github.com/isceco/github-workflows/compare/v1.15.1...v1.16.0) (2026-09-01)
+
+
+### Features
+
+* authenticate to AWS and ECR in the terraform-test job ([#32](https://github.com/isceco/github-workflows/issues/32)) ([1ada045](https://github.com/isceco/github-workflows/commit/1ada045a9c224a556836276296cb8d03bbf04051))
+
 ## [1.15.1](https://github.com/isceco/github-workflows/compare/v1.15.0...v1.15.1) (2026-08-28)
 
 
