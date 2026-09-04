@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.16.3](https://github.com/isceco/github-workflows/compare/v1.16.2...v1.16.3) (2026-09-04)
+
+
+### Bug Fixes
+
+* do not treat test fixtures as consumer visible ([#37](https://github.com/isceco/github-workflows/issues/37)) ([67ea390](https://github.com/isceco/github-workflows/commit/67ea39045e380923e216aea9ad6425f46716ccf7))
+
 ## [1.16.2](https://github.com/isceco/github-workflows/compare/v1.16.1...v1.16.2) (2026-09-01)
 
 
