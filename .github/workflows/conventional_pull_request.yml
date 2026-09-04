@@ -32,6 +32,13 @@ on:
           *.tf.json
         required: false
         type: string
+      release_irrelevant_prefixes:
+        description: 'Newline separated path prefixes to ignore when deciding whether a change is consumer-visible. Test fixtures are .tf files but nobody consumes them, so a test only pull request should not be told to cut a release.'
+        default: |
+          tests/
+          examples/
+        required: false
+        type: string
       fail_on_non_releasing:
         description: 'Fail rather than warn when a non-releasing type modifies release relevant paths. Warning by default, because a deliberate chore touching these files is legitimate.'
         default: false
@@ -119,12 +126,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PATHS: ${{ inputs.release_relevant_paths }}
+          SKIP_PREFIXES: ${{ inputs.release_irrelevant_prefixes }}
           TYPE: ${{ steps.title.outputs.type }}
           FAIL: ${{ inputs.fail_on_non_releasing }}
         run: |
           set -euo pipefail
           gh api "/repos/${GITHUB_REPOSITORY}/pulls/${{ github.event.pull_request.number }}/files" \
             --paginate --jq '.[].filename' > /tmp/changed.txt || true
+
+          # Drop test fixtures first. They are .tf files, and the glob below matches a .tf at any
+          # depth on purpose, so without this a test only pull request is told to cut a release
+          # for its own fixtures.
+          : > /tmp/considered.txt
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            skip=false
+            while IFS= read -r prefix; do
+              [ -z "$prefix" ] && continue
+              case "$f" in "$prefix"*) skip=true ;; esac
+            done <<< "$SKIP_PREFIXES"
+            [ "$skip" = true ] || printf '%s\n' "$f" >> /tmp/considered.txt
+          done < /tmp/changed.txt
 
           MATCHED=""
           while IFS= read -r glob; do
@@ -133,7 +155,7 @@ jobs:
               # shellcheck disable=SC2254
               case "$f" in $glob) MATCHED="${MATCHED}${f}"$'\n' ;; esac
               case "$f" in */$glob) MATCHED="${MATCHED}${f}"$'\n' ;; esac
-            done < /tmp/changed.txt
+            done < /tmp/considered.txt
           done <<< "$PATHS"
           MATCHED=$(printf '%s' "$MATCHED" | sort -u | sed '/^$/d')
 
