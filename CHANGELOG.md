@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.16.4](https://github.com/isceco/github-workflows/compare/v1.16.3...v1.16.4) (2026-09-08)
+
+
+### Bug Fixes
+
+* bump the actions-minor-and-patch group with 2 updates ([#39](https://github.com/isceco/github-workflows/issues/39)) ([e77dd71](https://github.com/isceco/github-workflows/commit/e77dd71cb4c87207126fc89ec0fe9d51deabd4e1))
+
 ## [1.16.3](https://github.com/isceco/github-workflows/compare/v1.16.2...v1.16.3) (2026-09-04)
 
 
