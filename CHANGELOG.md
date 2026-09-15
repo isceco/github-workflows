@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.17.0](https://github.com/isceco/github-workflows/compare/v1.16.4...v1.17.0) (2026-09-15)
+
+
+### Features
+
+* add a manual gate for terraform apply ([#42](https://github.com/isceco/github-workflows/issues/42)) ([b62aee6](https://github.com/isceco/github-workflows/commit/b62aee6b6725a58fd7f65c8b046a7122635a476b))
+
+
+### Bug Fixes
+
+* bump bridgecrewio/checkov-action ([a8caf2c](https://github.com/isceco/github-workflows/commit/a8caf2cd4b925c09eea336502df508df88a4c106))
+* bump bridgecrewio/checkov-action from 12.3122.0 to 12.3123.0 in the actions-minor-and-patch group ([#41](https://github.com/isceco/github-workflows/issues/41)) ([a8caf2c](https://github.com/isceco/github-workflows/commit/a8caf2cd4b925c09eea336502df508df88a4c106))
+
 ## [1.16.4](https://github.com/isceco/github-workflows/compare/v1.16.3...v1.16.4) (2026-09-08)
 
 
