@@ -28,6 +28,7 @@ out = ARGV[1]
   "terraform-security" => {"Trivy findings" => "step_trivy.sh"},
   "terraform-test"     => {"Look for tests" => "step_discover.sh",
                            "Setup ECR Authentication for OCI Modules" => "step_ecr_auth.sh"},
+  "terraform-execution" => {"Determine Execution Type" => "step_execution_type.sh"},
 }.each do |job, steps|
   steps.each do |name, file|
     s = wf["jobs"][job]["steps"].find { |x| x["name"] == name } or abort "missing step: #{name}"
@@ -213,6 +214,54 @@ ecr_case "whitespace around ids" " 031244176730 , 123456789012 " 0 2
 # it would pass whether or not the guard exists.
 ecr_case "leading separator produces no empty entry" ",031244176730" 0 1
 ecr_case "embedded separator produces no empty entry" "031244176730,,123456789012" 0 2
+
+# One step decides whether a run plans, applies or does nothing, and it is wrong in both
+# directions at once: an apply that should not have run changes a live account, and a missing
+# apply leaves the default branch merged but not deployed. Neither announces itself, so the
+# whole table is asserted rather than the rows that changed.
+#
+# The gate-off rows are the behaviour every caller of this workflow already depends on. They
+# are here so a future change to the gate cannot quietly alter them.
+exec_type_case() {
+  local desc="$1" event="$2" ref="$3" gate="$4" want="$5"
+  local dir body got
+  dir=$(mktemp -d "${TMPDIR:-/tmp}/wfexec.XXXXXX")
+
+  # the runner substitutes these before bash ever sees the script
+  body=$(cat "$BUILD/step_execution_type.sh")
+  body=${body//'${{ github.event_name }}'/$event}
+  body=${body//'${{ github.ref }}'/$ref}
+  body=${body//'${{ inputs.default_branch }}'/main}
+  body=${body//'${{ inputs.apply_requires_dispatch }}'/$gate}
+
+  GITHUB_OUTPUT="$dir/output.txt" bash -e -c "$body" > "$dir/stdout.txt" 2>&1
+  got=$(sed -n 's/^type=//p' "$dir/output.txt" 2>/dev/null)
+
+  if [ "$got" = "$want" ]; then
+    printf "  ok    %-46s %s\n" "$desc" "$got"
+    PASS=$((PASS + 1))
+  else
+    printf "  FAIL  %-46s %s want=%s\n" "$desc" "${got:-<none>}" "$want"
+    printf "        %s\n" "$(head -3 "$dir/stdout.txt" | tr '\n' ' ')"
+    FAIL=$((FAIL + 1))
+  fi
+  rm -rf "$dir"
+}
+
+echo ""
+echo "Execution type   (apply_requires_dispatch off)"
+exec_type_case "pull request plans" pull_request refs/pull/7/merge false plan
+exec_type_case "push to default branch applies" push refs/heads/main false apply
+exec_type_case "push to another branch does nothing" push refs/heads/feature false skip
+exec_type_case "manual run does nothing" workflow_dispatch refs/heads/main false skip
+
+echo ""
+echo "Execution type   (apply_requires_dispatch on)"
+exec_type_case "pull request plans" pull_request refs/pull/7/merge true plan
+exec_type_case "push to default branch plans only" push refs/heads/main true plan
+exec_type_case "push to another branch does nothing" push refs/heads/feature true skip
+exec_type_case "manual run on default branch applies" workflow_dispatch refs/heads/main true apply
+exec_type_case "manual run elsewhere does nothing" workflow_dispatch refs/heads/feature true skip
 
 echo ""
 echo "passed: $PASS   failed: $FAIL"

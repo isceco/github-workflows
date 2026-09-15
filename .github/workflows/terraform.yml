@@ -33,6 +33,23 @@ on:
         default: false
         required: false
         type: boolean
+      apply_requires_dispatch:
+        description: >-
+          Put a human between the merge and the apply. With this on, a push to the default branch runs a plan
+          instead of an apply, and the apply only runs when the workflow is started by hand from the Actions tab
+          on that branch. The plan lands in the run summary, so the person starting the apply has already seen
+          what it will do.
+
+          For private repositories on GitHub Free this is the only manual gate there is. Environment protection
+          rules are a paid feature: the API rejects required reviewers with "Please ensure the billing plan
+          supports the required reviewers protection rule", and an environment created without them looks like a
+          gate while approving nothing.
+
+          Callers that leave this off are unaffected: push to the default branch still applies, and
+          workflow_dispatch is still skipped.
+        default: false
+        required: false
+        type: boolean
       aws_default_region:
         description: 'Default AWS region to use for terraform execution (requires "enable_terraform_execution" to be true)'
         default: 'eu-central-2'
@@ -1024,8 +1041,19 @@ jobs:
             echo "type=plan" >> $GITHUB_OUTPUT
             echo "::notice::Will run Terraform Plan for pull request"
           elif [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/${{ inputs.default_branch }}" ]]; then
+            if [[ "${{ inputs.apply_requires_dispatch }}" == "true" ]]; then
+              # apply_requires_dispatch is on, so the merge only shows what would happen.
+              # Start this workflow by hand on ${{ inputs.default_branch }} to apply it.
+              echo "type=plan" >> $GITHUB_OUTPUT
+              echo "::notice::Will run Terraform Plan for push to ${{ inputs.default_branch }} - apply_requires_dispatch is set, so run this workflow manually on ${{ inputs.default_branch }} to apply"
+            else
+              echo "type=apply" >> $GITHUB_OUTPUT
+              echo "::notice::Will run Terraform Apply for push to ${{ inputs.default_branch }}"
+            fi
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.apply_requires_dispatch }}" == "true" && "${{ github.ref }}" == "refs/heads/${{ inputs.default_branch }}" ]]; then
+            # The branch is checked so a manual run on a feature branch cannot apply it.
             echo "type=apply" >> $GITHUB_OUTPUT
-            echo "::notice::Will run Terraform Apply for push to ${{ inputs.default_branch }}"
+            echo "::notice::Will run Terraform Apply for manual run on ${{ inputs.default_branch }}"
           else
             echo "type=skip" >> $GITHUB_OUTPUT
             echo "::notice::Skipping Terraform execution - not a PR or push to ${{ inputs.default_branch }}"
