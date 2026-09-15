@@ -889,7 +889,7 @@ jobs:
         if: ${{ inputs.checkov_enabled != 'false' }}
         # pinned to a commit rather than a tag or branch: this is a third-party action
         # running inside the compliance pipeline, and both branches and tags are mutable.
-        uses: bridgecrewio/checkov-action@f967808197a8d784d3e72919f38c3ff0cda7884e # v12.3122.0
+        uses: bridgecrewio/checkov-action@a8664e3a0549367977f0cda990a34311835c87c0 # v12.3123.0
         with:
           check: ${{ inputs.checkov_check }} # optional: run only a specific check_id. can be comma separated list
           skip_check: ${{ inputs.checkov_skip_check }} # optional: skip a specific check_id. can be comma separated list
