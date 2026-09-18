@@ -50,7 +50,17 @@ on:
         required: false
         type: boolean
       runner:
-        default: 'ubuntu-latest'
+        # CodeBuild hosted ephemeral runner in pc-core-platform-tooling, rather than a GitHub
+        # hosted one. Self hosted runners are not metered, so this keeps CI running when the
+        # organisation's GitHub Actions minutes are exhausted, which is what prompted it.
+        #
+        # The run id and attempt are what make each runner ephemeral: CodeBuild matches the label
+        # and starts one container for that job alone. A label without them is never dispatched.
+        # Expressions work here because a workflow_call default is evaluated in the caller's
+        # context, the same way concurrency_group below already relies on.
+        #
+        # Override this to 'ubuntu-latest' to go back to a GitHub hosted runner for one caller.
+        default: codebuild-github-isceco-runner-ubuntu-${{ github.run_id }}-${{ github.run_attempt }}
         required: false
         type: string
     outputs:
