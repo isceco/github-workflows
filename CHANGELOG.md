@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.18.0](https://github.com/isceco/github-workflows/compare/v1.17.0...v1.18.0) (2026-09-18)
+
+
+### Features
+
+* default every shared workflow to the codebuild runner ([#44](https://github.com/isceco/github-workflows/issues/44)) ([8c065cf](https://github.com/isceco/github-workflows/commit/8c065cf5fe2cd80b3018c5888bc11a99587e968d))
+
 ## [1.17.0](https://github.com/isceco/github-workflows/compare/v1.16.4...v1.17.0) (2026-09-15)
 
 
