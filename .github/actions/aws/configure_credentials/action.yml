@@ -48,6 +48,33 @@ inputs:
 runs:
   using: "composite"
   steps:
+    # An empty role ARN is not an error to configure-aws-credentials: it falls back to the default
+    # credential chain. On a GitHub hosted runner that chain is empty, so the job fails immediately
+    # and the cause is obvious. On a self hosted CodeBuild runner the chain finds the runner's own
+    # service role, so the job carries on as the wrong identity and fails later on a permission it
+    # was never meant to need. Catch it here instead.
+    #
+    # 'required: true' above does not do this. GitHub treats it as documentation, and a caller that
+    # passes an unset secret passes an empty string rather than failing.
+    - name: "Check a role ARN was supplied"
+      shell: bash
+      env:
+        ROLE_ARN: ${{ inputs.AWS_ROLE_ARN_TO_ASSUME }}
+      run: |
+        set -euo pipefail
+
+        if [ -z "${ROLE_ARN}" ]; then
+          echo "::error::No AWS role ARN was supplied, so this job would have run as whatever identity the runner already has. Set the secret the calling workflow passes to AWS_ROLE_ARN_TO_ASSUME. A repository that has never published needs it adding: an unset secret arrives here as an empty string, not as an error."
+          exit 1
+        fi
+
+        # A wrong-shaped value would fail at AssumeRole anyway, but the message there names STS
+        # rather than the secret, which sends you looking in the wrong place.
+        if ! printf '%s' "${ROLE_ARN}" | grep -qE '^arn:aws[a-z-]*:iam::[0-9]{12}:role/'; then
+          echo "::error::AWS_ROLE_ARN_TO_ASSUME is set but is not an IAM role ARN. Expected arn:aws:iam::<account>:role/<name>."
+          exit 1
+        fi
+
     - name: "Configure AWS credentials"
       uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6
       with:

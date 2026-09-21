@@ -37,6 +37,15 @@ out = ARGV[1]
 end
 ' "$REPO/.github/workflows/terraform.yml" "$BUILD" || exit 1
 
+# The credential guard lives in a composite action rather than in terraform.yml, so it is
+# extracted separately. Every workflow that assumes a role goes through this action, which is why
+# the check sits there and not in each caller.
+ruby -ryaml -e '
+a = YAML.load_file(ARGV[0])
+s = a["runs"]["steps"].find { |x| x["name"] == "Check a role ARN was supplied" } or abort "missing step: Check a role ARN was supplied"
+File.write(File.join(ARGV[1], "step_role_guard.sh"), s["run"])
+' "$REPO/.github/actions/aws/configure_credentials/action.yml" "$BUILD" || exit 1
+
 PASS=0
 FAIL=0
 
@@ -262,6 +271,41 @@ exec_type_case "push to default branch plans only" push refs/heads/main true pla
 exec_type_case "push to another branch does nothing" push refs/heads/feature true skip
 exec_type_case "manual run on default branch applies" workflow_dispatch refs/heads/main true apply
 exec_type_case "manual run elsewhere does nothing" workflow_dispatch refs/heads/feature true skip
+
+role_guard_case() {
+  local desc="$1" arn="$2" want="$3"
+  local dir body got
+  dir=$(mktemp -d "${TMPDIR:-/tmp}/wfrole.XXXXXX")
+
+  body=$(cat "$BUILD/step_role_guard.sh")
+
+  # ROLE_ARN reaches the script through env, so the value is set rather than substituted.
+  ROLE_ARN="$arn" bash -e -c "$body" > "$dir/stdout.txt" 2>&1
+  got=$?
+
+  if [ "$got" = "$want" ]; then
+    printf "  ok    %-46s exit=%s\n" "$desc" "$got"
+    PASS=$((PASS + 1))
+  else
+    printf "  FAIL  %-46s exit=%s want=%s\n" "$desc" "$got" "$want"
+    printf "        %s\n" "$(head -2 "$dir/stdout.txt" | tr '\n' ' ')"
+    FAIL=$((FAIL + 1))
+  fi
+  rm -rf "$dir"
+}
+
+echo ""
+echo "Role ARN guard"
+# The case that caused this: an unset secret arrives as an empty string, and without the guard
+# configure-aws-credentials falls back to the runner's own identity instead of failing.
+role_guard_case "empty is refused" "" 1
+role_guard_case "valid role arn passes" "arn:aws:iam::123456789012:role/publish" 0
+role_guard_case "role path is allowed" "arn:aws:iam::123456789012:role/service-role/publish" 0
+role_guard_case "govcloud partition passes" "arn:aws-us-gov:iam::123456789012:role/publish" 0
+role_guard_case "a user arn is refused" "arn:aws:iam::123456789012:user/someone" 1
+role_guard_case "short account id is refused" "arn:aws:iam::123:role/publish" 1
+role_guard_case "a bare role name is refused" "publish" 1
+role_guard_case "whitespace only is refused" " " 1
 
 echo ""
 echo "passed: $PASS   failed: $FAIL"
