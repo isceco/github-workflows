@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.18.1](https://github.com/isceco/github-workflows/compare/v1.18.0...v1.18.1) (2026-10-01)
+
+
+### Bug Fixes
+
+* bump the actions-minor-and-patch group with 2 updates ([#47](https://github.com/isceco/github-workflows/issues/47)) ([706641f](https://github.com/isceco/github-workflows/commit/706641fa01121aa649269f13730937d53a835d49))
+* fail when no role ARN is supplied instead of using the runner's identity ([#46](https://github.com/isceco/github-workflows/issues/46)) ([3b1662e](https://github.com/isceco/github-workflows/commit/3b1662ec786fb296b287eadd0378efac625caa26))
+
 ## [1.18.0](https://github.com/isceco/github-workflows/compare/v1.17.0...v1.18.0) (2026-09-18)
 
 
