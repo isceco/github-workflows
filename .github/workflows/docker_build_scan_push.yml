@@ -182,7 +182,7 @@ jobs:
       - name: Scan with CodeInspector
         id: inspector
         if: ${{ inputs.scan && steps.build.outputs.skipped != 'true' }}
-        uses: aws-actions/vulnerability-scan-github-action-for-amazon-inspector@baab69e77b34f244adef1f702d0fd69f2b3bc545 # v1
+        uses: aws-actions/vulnerability-scan-github-action-for-amazon-inspector@c87d8a405e237cfdf16e5dd3808d28d088d7cb6f # v1
         with:
           artifact_type: 'container'
           artifact_path: '${{ steps.export.outputs.scan_artifact_path }}'
@@ -205,7 +205,7 @@ jobs:
 
       - name: Upload scan reports
         if: ${{ always() && inputs.scan && steps.build.outputs.skipped != 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: security-scan-reports-${{ steps.build.outputs.image_tag }}
           path: |
