@@ -1,0 +1,46 @@
+name: Dependabot GitHub Actions Patch Auto-Merge
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Enable auto-merge (false = dry-run)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependabot-organization-automerge
+  cancel-in-progress: false
+
+jobs:
+  automerge:
+    # Scheduled runs remain dry-run until rollout explicitly changes this policy.
+    runs-on: odebuild-github-isceco-runner-ubuntu-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get GitHub App Token
+        id: app_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }} # to include all existing and newly created repositories automatically.
+          # no repositories input: token covers all repositories in App installation.
+      - name: Check organization Dependabot pull requests
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          ORG: ${{ github.repository_owner }}
+          APPLY: ${{ github.event_name == 'workflow_dispatch' && inputs.apply }}
+          # APPLY: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.apply) }}
+        run: |
+          set -euo pipefail
+          if [ "$APPLY" = 'true' ]; then
+            python3 .github/scripts/dependabot_automerge.py --org "$ORG" --apply
+          else
+            python3 .github/scripts/dependabot_automerge.py --org "$ORG"
+          fi

@@ -23,12 +23,24 @@ updates:
       prefix: "fix"
     labels:
       - "dependencies"
+    # groups:
+    #   # One pull request for the routine bumps rather than five. Majors stay separate,
+    #   # because those are the ones that need reading before merging.
+    #   actions-minor-and-patch:
+    #     patterns:
+    #       - "*"
+    #     update-types:
+    #       - "minor"
+    #       - "patch"
     groups:
-      # One pull request for the routine bumps rather than five. Majors stay separate,
-      # because those are the ones that need reading before merging.
-      actions-minor-and-patch:
+      actions-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+
+      actions-minor:
         patterns:
           - "*"
         update-types:
           - "minor"
-          - "patch"
