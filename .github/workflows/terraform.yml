@@ -433,7 +433,7 @@ jobs:
       # Running tflint directly puts every finding in the run summary, where there is no
       # cap, and keeps annotations for the error severity findings that actually gate.
       - name: Setup TFLint
-        uses: terraform-linters/setup-tflint@1cf010d3c7aef302051ccdb68c14c5dc2efa34ef # v6.3.1
+        uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
         with:
           tflint_version: ${{ inputs.tflint_version }}
           github_token: ${{ steps.github_app_token.outputs.token || secrets.GITHUB_TOKEN }}
