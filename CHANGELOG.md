@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.19.0](https://github.com/isceco/github-workflows/compare/v1.18.1...v1.19.0) (2026-11-20)
+
+
+### Features
+
+* add centralized Dependabot patch auto-merge ([#52](https://github.com/isceco/github-workflows/issues/52)) ([c96febc](https://github.com/isceco/github-workflows/commit/c96febcfe6e67f6ea7d209de60b061f886721bb8))
+
 ## [1.18.1](https://github.com/isceco/github-workflows/compare/v1.18.0...v1.18.1) (2026-10-01)
 
 
