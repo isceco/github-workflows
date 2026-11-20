@@ -22,7 +22,7 @@ jobs:
     # Scheduled runs remain dry-run until rollout explicitly changes this policy.
     runs-on: codebuild-github-isceco-runner-ubuntu-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Get GitHub App Token
         id: app_token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
