@@ -1,8 +1,8 @@
 name: Dependabot GitHub Actions Patch Auto-Merge
 
 on:
-  schedule:
-    - cron: '0 */6 * * *'
+#  schedule:
+#    - cron: '0 */6 * * *'
   workflow_dispatch:
     inputs:
       apply:
@@ -20,7 +20,7 @@ concurrency:
 jobs:
   automerge:
     # Scheduled runs remain dry-run until rollout explicitly changes this policy.
-    runs-on: odebuild-github-isceco-runner-ubuntu-${{ github.run_id }}-${{ github.run_attempt }}
+    runs-on: codebuild-github-isceco-runner-ubuntu-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
       - name: Get GitHub App Token
