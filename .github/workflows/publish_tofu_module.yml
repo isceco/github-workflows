@@ -129,7 +129,7 @@ jobs:
       # account identifier out of this workflow and out of the caller's configuration.
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2
+        uses: aws-actions/amazon-ecr-login@7290e214a610b32bc0eef81748948b6d466a8783 # v2
 
       - name: Resolve target
         id: resolve
@@ -260,7 +260,7 @@ jobs:
         # the artifact is already published by this point; a documentation refresh that
         # cannot authenticate must not turn a successful publish into a failed one
         continue-on-error: true
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3
         with:
           app-id: ${{ inputs.dispatch_app_id }}
           private-key: ${{ secrets.DOCS_DISPATCH_APP_PRIVATE_KEY }}
